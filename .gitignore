@@ -1,0 +1,12 @@
+.env
+*.db
+__pycache__/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+node_modules/
+backend/static/
+frontend/dist/
+.DS_Store

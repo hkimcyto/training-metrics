@@ -1,0 +1,26 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tri
+      POSTGRES_PASSWORD: tri
+      POSTGRES_DB: tri
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tri"]
+      interval: 3s
+      retries: 20
+
+  app:
+    build: .
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql://tri:tri@db:5432/tri
+      API_URL: http://localhost:8000
+      FRONTEND_URL: http://localhost:8000
+    ports: ["8000:8000"]
+    depends_on:
+      db: { condition: service_healthy }
+
+volumes:
+  pgdata:

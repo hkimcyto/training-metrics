@@ -1,0 +1,28 @@
+# One-click deploy on Render: New > Blueprint > point at this repo.
+services:
+  - type: web
+    name: tri-dash
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase: { name: tri-dash-db, property: connectionString }
+      - key: SECRET_KEY
+        generateValue: true
+      - key: STRAVA_WEBHOOK_VERIFY_TOKEN
+        generateValue: true
+      - key: STRAVA_CLIENT_ID
+        sync: false
+      - key: STRAVA_CLIENT_SECRET
+        sync: false
+      - key: API_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: DEMO_MODE
+        value: "true"
+
+databases:
+  - name: tri-dash-db
+    plan: free
