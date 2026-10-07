@@ -28,7 +28,7 @@ from app.db.session import SessionLocal, get_db
 from app.ingest import garmin
 from app.ingest.scoring import resolve_thresholds
 from app.ingest.strava import StravaClient, StravaError, authorize_url
-from app.ingest.sync import handle_webhook_event, rescore_all, sync_athlete
+from app.ingest.sync import handle_webhook_event, is_sync_active, rescore_all, sync_athlete
 
 router = APIRouter(prefix="/api")
 COOKIE = "tri_session"
@@ -91,6 +91,12 @@ def me(athlete: AthleteDep, db: DbDep, settings: SettingsDep) -> dict[str, Any]:
         "measurement": athlete.measurement,
         "strava_enabled": settings.strava_enabled,
         "last_synced_at": athlete.last_synced_at.isoformat() if athlete.last_synced_at else None,
+        "sync": {
+            "state": athlete.sync_state,
+            "message": athlete.sync_message,
+            "done": athlete.sync_done,
+            "total": athlete.sync_total,
+        },
         "today": services._today(db, athlete).isoformat(),
         "settings": {
             "weight_kg": athlete.weight_kg,
@@ -159,8 +165,10 @@ def _run_sync(athlete_id: int, full: bool) -> None:
     db = SessionLocal()
     try:
         athlete = db.get(Athlete, athlete_id)
-        if athlete:
+        if athlete and not is_sync_active(athlete):
             sync_athlete(get_settings(), db, athlete, full=full)
+    except Exception:  # noqa: BLE001 - already recorded on the athlete row
+        pass
     finally:
         db.close()
 
@@ -224,7 +232,9 @@ def logout(response: Response) -> dict[str, bool]:
 
 @router.post("/sync")
 def sync_now(athlete: OwnerDep, background: BackgroundTasks) -> dict[str, str]:
-    background.add_task(_run_sync, athlete.id, False)
+    if is_sync_active(athlete):
+        return {"status": "already running"}
+    background.add_task(_run_sync, athlete.id, athlete.last_synced_at is None)
     return {"status": "started"}
 
 

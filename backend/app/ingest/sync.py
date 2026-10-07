@@ -4,7 +4,7 @@ single-activity updates from webhooks."""
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -75,40 +75,88 @@ def needs_streams(act: Activity) -> bool:
     return not act.has_streams and act.sport in ("bike", "run") and (act.avg_hr or act.device_watts)
 
 
+STALE_AFTER = timedelta(minutes=10)
+
+
+def is_sync_active(athlete: Athlete) -> bool:
+    """A sync counts as running if it reported progress recently. A row stuck
+    in "running" longer than that was interrupted (e.g. a redeploy)."""
+    if athlete.sync_state != "running" or athlete.sync_updated_at is None:
+        return False
+    updated = athlete.sync_updated_at
+    if updated.tzinfo is None:
+        updated = updated.replace(tzinfo=UTC)
+    return datetime.now(UTC) - updated < STALE_AFTER
+
+
+def _progress(
+    db: Session, athlete: Athlete, state: str, message: str, done: int = 0, total: int = 0
+) -> None:
+    """Persist sync progress so the UI can show it and a restart can resume."""
+    athlete.sync_state, athlete.sync_message = state, message
+    athlete.sync_done, athlete.sync_total = done, total
+    athlete.sync_updated_at = datetime.now(UTC)
+    db.commit()
+    log.info("sync athlete=%s %s %s %s/%s", athlete.id, state, message, done, total)
+
+
 def sync_athlete(
     settings: Settings, db: Session, athlete: Athlete, full: bool = False
 ) -> dict[str, int]:
     """Pull new activities, fetch streams for the most recent ones that lack
-    them, and rescore everything with the current thresholds."""
+    them, and rescore everything with the current thresholds.
+
+    Progress is committed as it goes, so the dashboard fills in while a long
+    first import runs and an interrupted import picks up where it stopped."""
+    try:
+        return _sync(settings, db, athlete, full)
+    except Exception as e:
+        db.rollback()
+        _progress(db, athlete, "error", f"Sync failed: {e}"[:250])
+        log.exception("sync failed for athlete %s", athlete.id)
+        raise
+
+
+def _sync(settings: Settings, db: Session, athlete: Athlete, full: bool) -> dict[str, int]:
     client = client_for(settings, db, athlete)
     after = None
     if not full and athlete.last_synced_at:
         after = int(athlete.last_synced_at.timestamp()) - 3 * 86400  # catch late uploads/edits
 
+    _progress(db, athlete, "running", "Fetching activity list")
     new = 0
     for s in client.activities(after=after):
         upsert_summary(db, athlete, s)
         new += 1
+        if new % 100 == 0:
+            _progress(db, athlete, "running", "Fetching activity list", new, 0)
     db.flush()
+    rescore_all(db, athlete)  # summary-level scores right away, refined after streams
+    _progress(db, athlete, "running", "Fetching heart rate and power", 0, 0)
 
-    pending = db.scalars(
-        select(Activity)
-        .where(Activity.athlete_id == athlete.id, Activity.source == "strava")
-        .order_by(Activity.start_time.desc())
-        .limit(settings.strava_stream_backfill)
-    ).all()
+    pending = [
+        a
+        for a in db.scalars(
+            select(Activity)
+            .where(Activity.athlete_id == athlete.id, Activity.source == "strava")
+            .order_by(Activity.start_time.desc())
+            .limit(settings.strava_stream_backfill)
+        ).all()
+        if needs_streams(a)
+    ]
     streamed = 0
-    for act in pending:
-        if needs_streams(act):
-            try:
-                apply_streams(act, client.streams(act.external_id))
-                streamed += 1
-            except Exception as e:  # one bad activity shouldn't stop the sync
-                log.warning("streams failed for %s: %s", act.external_id, e)
+    for i, act in enumerate(pending, 1):
+        try:
+            apply_streams(act, client.streams(act.external_id))
+            streamed += 1
+        except Exception as e:  # one bad activity shouldn't stop the sync
+            log.warning("streams failed for %s: %s", act.external_id, e)
+        if i % 10 == 0 or i == len(pending):
+            _progress(db, athlete, "running", "Fetching heart rate and power", i, len(pending))
 
     rescored = rescore_all(db, athlete)
     athlete.last_synced_at = datetime.now(UTC)
-    db.commit()
+    _progress(db, athlete, "idle", f"Synced {new} activities", new, new)
     return {"activities": new, "streams": streamed, "rescored": rescored}
 
 

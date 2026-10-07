@@ -51,6 +51,11 @@ class Athlete(Base):
     race_temp_c: Mapped[float] = mapped_column(Float, default=22)
 
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sync_state: Mapped[str] = mapped_column(String(16), default="idle", server_default="idle")
+    sync_message: Mapped[str | None] = mapped_column(String(255))
+    sync_done: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    sync_total: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    sync_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     activities: Mapped[list[Activity]] = relationship(

@@ -1,5 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -13,8 +14,9 @@ from app.api.routes import router
 from app.config import get_settings
 from app.db.models import Athlete
 from app.db.session import SessionLocal
-from app.ingest.sync import sync_athlete
+from app.ingest.sync import is_sync_active, sync_athlete
 
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s %(message)s")
 log = logging.getLogger("tri")
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
@@ -25,8 +27,11 @@ def sync_everyone() -> None:
     db = SessionLocal()
     try:
         for a in db.scalars(select(Athlete).where(Athlete.refresh_token.is_not(None))).all():
+            if is_sync_active(a):
+                continue
             try:
-                sync_athlete(settings, db, a)
+                # a first import that never finished (e.g. cut off by a redeploy) restarts in full
+                sync_athlete(settings, db, a, full=a.last_synced_at is None)
             except Exception as e:  # noqa: BLE001
                 log.warning("scheduled sync failed for athlete %s: %s", a.id, e)
     finally:
@@ -39,7 +44,13 @@ async def lifespan(app: FastAPI):
     scheduler = None
     if settings.strava_enabled:
         scheduler = BackgroundScheduler()
-        scheduler.add_job(sync_everyone, "interval", minutes=settings.sync_interval_minutes)
+        # first run shortly after boot resumes anything a restart interrupted
+        scheduler.add_job(
+            sync_everyone,
+            "interval",
+            minutes=settings.sync_interval_minutes,
+            next_run_time=datetime.now(UTC) + timedelta(seconds=20),
+        )
         scheduler.start()
     yield
     if scheduler:

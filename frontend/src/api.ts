@@ -38,7 +38,13 @@ const get =
   () =>
     request<T>(path)
 
-export const useMe = () => useQuery({ queryKey: ['me'], queryFn: get<Me>('/me') })
+/** Polls every few seconds while a Strava import is running. */
+export const useMe = () =>
+  useQuery({
+    queryKey: ['me'],
+    queryFn: get<Me>('/me'),
+    refetchInterval: (q) => (q.state.data?.sync?.state === 'running' ? 4000 : false),
+  })
 export const useDashboard = (weeks = 12) =>
   useQuery({ queryKey: ['dashboard', weeks], queryFn: get<Dashboard>(`/dashboard?weeks=${weeks}`) })
 export const usePmc = (days = 150) => useQuery({ queryKey: ['pmc', days], queryFn: get<Pmc>(`/pmc?days=${days}`) })
@@ -65,7 +71,7 @@ export function useSync() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () => request<{ status: string }>('/sync', { method: 'POST' }),
-    onSuccess: () => setTimeout(() => qc.invalidateQueries(), 8000),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['me'] }),
   })
 }
 

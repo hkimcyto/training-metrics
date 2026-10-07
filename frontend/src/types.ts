@@ -7,6 +7,7 @@ export interface Me {
   measurement: 'imperial' | 'metric'
   strava_enabled: boolean
   last_synced_at: string | null
+  sync: { state: 'idle' | 'running' | 'error'; message: string | null; done: number; total: number }
   today: string
   settings: {
     weight_kg: number

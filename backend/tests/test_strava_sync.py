@@ -12,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.config import Settings
 from app.db.models import Activity, Athlete, Base
-from app.ingest.strava import API, OAUTH
+from app.ingest.strava import API, OAUTH, StravaError
 from app.ingest.sync import handle_webhook_event, sync_athlete
 
 SETTINGS = Settings(strava_client_id="1", strava_client_secret="s", database_url="sqlite://")
@@ -155,3 +155,26 @@ def test_webhook_deauthorize_clears_tokens(db, athlete):
     }
     assert handle_webhook_event(SETTINGS, db, ev) == "deauthorized"
     assert athlete.refresh_token is None
+
+
+@respx.mock
+def test_sync_records_progress_and_errors(db, athlete):
+    from datetime import UTC, datetime, timedelta
+
+    from app.ingest.sync import is_sync_active
+
+    athlete.token_expires_at = int(time.time()) + 3600
+    respx.get(f"{API}/athlete/activities").mock(return_value=httpx.Response(200, json=[RUN]))
+    respx.get(url__regex=r".*/streams").mock(return_value=httpx.Response(200, json={}))
+    sync_athlete(SETTINGS, db, athlete, full=True)
+    assert athlete.sync_state == "idle" and athlete.last_synced_at is not None
+
+    respx.get(f"{API}/athlete/activities").mock(return_value=httpx.Response(500, text="boom"))
+    with pytest.raises(StravaError):
+        sync_athlete(SETTINGS, db, athlete)
+    assert athlete.sync_state == "error" and "500" in athlete.sync_message
+
+    athlete.sync_state, athlete.sync_updated_at = "running", datetime.now(UTC)
+    assert is_sync_active(athlete)
+    athlete.sync_updated_at = datetime.now(UTC) - timedelta(minutes=30)
+    assert not is_sync_active(athlete)  # interrupted by a restart, safe to resume

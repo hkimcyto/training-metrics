@@ -1,4 +1,5 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { logout, useMe, useSync } from './api'
 import type { Units } from './lib/format'
 import Overview from './pages/Overview'
@@ -54,6 +55,21 @@ export default function App() {
   const tab = useHashTab()
   const me = useMe()
   const sync = useSync()
+  const qc = useQueryClient()
+  const status = me.data?.sync
+  const running = status?.state === 'running'
+  // when an import finishes, refresh every chart
+  const wasRunning = useRef(false)
+  useEffect(() => {
+    if (wasRunning.current && !running) qc.invalidateQueries()
+    wasRunning.current = running
+  }, [running, qc])
+  // while importing, refresh charts periodically so they fill in as data lands
+  useEffect(() => {
+    if (!running) return
+    const id = setInterval(() => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== 'me' }), 20000)
+    return () => clearInterval(id)
+  }, [running, qc])
   const units: Units = me.data?.measurement ?? 'imperial'
   const race = me.data?.settings.race_date
   const daysOut = race && me.data ? Math.round((Date.parse(race) - Date.parse(me.data.today)) / 864e5) : null
@@ -75,8 +91,8 @@ export default function App() {
             )}
             {me.data && !me.data.is_demo && (
               <>
-                <button className="btn" onClick={() => sync.mutate()} disabled={sync.isPending}>
-                  {sync.isSuccess ? 'Syncing…' : 'Sync now'}
+                <button className="btn" onClick={() => sync.mutate()} disabled={sync.isPending || running}>
+                  {running ? 'Syncing…' : 'Sync now'}
                 </button>
                 <button className="btn" onClick={() => logout().then(() => window.location.reload())}>
                   Sign out
@@ -107,6 +123,24 @@ export default function App() {
               <a className="btn strava" href="/api/auth/strava/login">
                 Connect with Strava
               </a>
+            )}
+          </div>
+        )}
+        {me.data && !me.data.is_demo && status && status.state !== 'idle' && (
+          <div className="demo-bar" style={status.state === 'error' ? { borderColor: 'var(--bad)' } : undefined}>
+            <span>
+              <b style={status.state === 'error' ? { color: 'var(--bad)' } : undefined}>
+                {status.state === 'error' ? 'Sync error' : 'Importing'}
+              </b>
+              {status.message}
+              {status.total > 0 && ` · ${status.done} of ${status.total}`}
+              {status.total === 0 && status.done > 0 && ` · ${status.done} so far`}
+              {running && '. Charts fill in as data arrives; the first import can take 10–15 minutes.'}
+            </span>
+            {status.state === 'error' && (
+              <button className="btn" onClick={() => sync.mutate()}>
+                Try again
+              </button>
             )}
           </div>
         )}
