@@ -311,7 +311,7 @@ export default function Load() {
         <Panel
           className="span-5"
           title="Your response model"
-          note="Fitted with regularised non-linear least squares on aerobic-efficiency markers from steady rides and runs. With little data it falls back to the standard 42/7-day constants."
+          note="Fitted with regularised non-linear least squares on aerobic-efficiency markers from steady rides and runs. When the markers are too sparse or noisy to explain performance (R² under 0.15), it uses the standard 42/7-day constants rather than trust a weak fit."
         >
           <Q q={pmc} height={260}>
             {(p) =>

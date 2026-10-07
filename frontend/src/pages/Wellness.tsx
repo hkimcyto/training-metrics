@@ -22,7 +22,12 @@ function Importer() {
   const imp = useGarminImport()
   const me = useMe()
   const [over, setOver] = useState(false)
-  if (me.data?.is_demo) return <p className="note">Importing is available once you connect your own account.</p>
+  if (me.data?.is_demo)
+    return (
+      <p className="note">
+        This is a read-only demo. Sign in with Strava on your own deployment to import a Garmin export.
+      </p>
+    )
   const pick = (f?: File | null) => f && imp.mutate(f)
   return (
     <>
@@ -58,6 +63,39 @@ function Importer() {
 export default function Wellness() {
   const well = useWellness(90)
   const pmc = usePmc(90)
+
+  if (well.data && well.data.days.length === 0) {
+    return (
+      <>
+        <div className="page-head">
+          <div>
+            <h1>Recovery</h1>
+            <p className="lede">
+              Overnight HRV, resting heart rate and sleep from Garmin, set against training load to show how the body
+              absorbs hard days.
+            </p>
+          </div>
+        </div>
+        <div className="grid">
+          <Panel
+            className="span-7"
+            title="No Garmin data imported yet"
+            note="Strava doesn't receive sleep or HRV, so this page fills from a Garmin account export (or the optional live sync)."
+          >
+            <p style={{ marginTop: 0 }}>Once imported, this page shows:</p>
+            <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6 }}>
+              <li>Nightly HRV against a rolling 60-day baseline, flagged when it drops below your normal range</li>
+              <li>Resting heart rate, sleep and Body Battery trends</li>
+              <li>How strongly yesterday's training stress predicts this morning's HRV and resting HR</li>
+            </ul>
+          </Panel>
+          <Panel className="span-5" title="Import Garmin data">
+            <Importer />
+          </Panel>
+        </div>
+      </>
+    )
+  }
 
   return (
     <>

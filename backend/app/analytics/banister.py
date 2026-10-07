@@ -63,6 +63,7 @@ def fit(
     obs_val: np.ndarray,
     prior_weight: float = 0.15,
     min_obs: int = 12,
+    min_r2: float = 0.15,
 ) -> BanisterFit:
     """Fit to performance observations taken on days ``obs_idx``.
 
@@ -96,13 +97,17 @@ def fit(
     pred = predict(w, p0, res.x[1:])[obs_idx]
     ss_res = float(np.sum((z - pred) ** 2))
     ss_tot = float(np.sum((z - z.mean()) ** 2)) or 1.0
+    r2 = 1 - ss_res / ss_tot
+    if r2 < min_r2:  # the markers don't carry enough signal to trust a personal fit
+        fallback = _prior_fit(mu, n_obs=int(y.size))
+        return BanisterFit(**{**fallback.__dict__, "r2": r2})
     return BanisterFit(
         p0=float(p0),
         k1=float(k1 / scale),
         k2=float(k2 / scale),
         tau1=float(tau1),
         tau2=float(tau2),
-        r2=1 - ss_res / ss_tot,
+        r2=r2,
         n_obs=int(y.size),
         personalised=True,
     )

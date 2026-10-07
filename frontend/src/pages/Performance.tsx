@@ -99,7 +99,7 @@ export default function Performance({ units }: { units: Units }) {
             </span>
           </div>
         }
-        note="Best average power for each duration, on a log time axis. The model line is P = W′/t + CP, fitted by least squares to your 2–20 minute bests."
+        note="Best average power for each duration, on a log time axis, from rides with a power meter or smart trainer. The model line is P = W′/t + CP, fitted by least squares to the 2–20 minute bests. Curves built from steady training rides understate true CP; a maximal test effort sharpens them."
       >
         <Q q={pc} height={340}>
           {(p) => {

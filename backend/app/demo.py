@@ -9,14 +9,18 @@ Francisco and Marin, and wellness data that responds to training load.
 Aerobic efficiency is generated from a hidden Banister model, so the fitting
 code has a real signal to recover, the same way it would from a real athlete.
 
-    python -m app.demo               # create or replace the demo athlete
+    python -m app.demo               # load the real snapshot (or synthetic if absent)
+    python -m app.demo --synthetic   # always use the synthetic athlete
     python -m app.demo --if-missing  # only if there isn't one yet
 """
 
 from __future__ import annotations
 
+import gzip
+import json
 import math
 from datetime import date, datetime, time, timedelta
+from pathlib import Path
 
 import numpy as np
 from sqlalchemy import delete, select
@@ -28,6 +32,7 @@ from app.analytics.polyline import encode
 from app.analytics.power_curve import best_efforts
 from app.db.models import Activity, Athlete, Base, WellnessDay
 from app.db.session import SessionLocal, engine
+from app.ingest.scoring import sport_of
 from app.ingest.sync import rescore_all
 
 END = date(2026, 10, 4)  # a Sunday, three weeks out from the demo race
@@ -192,12 +197,7 @@ def _ride_stream(
 
 def build(db: Session) -> Athlete:
     Base.metadata.create_all(engine)
-    old = db.scalar(select(Athlete).where(Athlete.is_demo.is_(True)))
-    if old:
-        db.execute(delete(WellnessDay).where(WellnessDay.athlete_id == old.id))
-        db.execute(delete(Activity).where(Activity.athlete_id == old.id))
-        db.delete(old)
-        db.commit()
+    _drop_existing(db)
 
     rng = np.random.default_rng(2026)
     athlete = Athlete(
@@ -397,6 +397,78 @@ def build(db: Session) -> Athlete:
     return athlete
 
 
+SNAPSHOT = Path(__file__).parent / "fixtures" / "athlete.json.gz"
+
+
+def build_from_snapshot(db: Session, path: Path = SNAPSHOT) -> Athlete:
+    """Load a real athlete's exported Strava history as the public demo.
+
+    The snapshot is produced by tools/build_snapshot.py, which trims the ends
+    of every route so start and finish locations aren't published."""
+    Base.metadata.create_all(engine)
+    _drop_existing(db)
+    with gzip.open(path, "rt") as f:
+        data = json.load(f)
+    meta = data["athlete"]
+    athlete = Athlete(
+        name=meta["name"],
+        is_demo=True,
+        weight_kg=meta.get("weight_kg", 77),
+        max_hr=meta.get("max_hr", 192),
+        ftp_watts=meta.get("ftp_watts"),
+        race_name=meta.get("race_name", "IRONMAN California"),
+        race_date=date.fromisoformat(meta.get("race_date", "2026-10-18")),
+        race_climb_m=meta.get("race_climb_m", 500),
+        race_wetsuit=meta.get("race_wetsuit", True),
+        race_temp_c=meta.get("race_temp_c", 25),
+    )
+    db.add(athlete)
+    db.flush()
+    for r in data["activities"]:
+        start = datetime.fromisoformat(r["start_local"])
+        sport = sport_of(r["sport_type"]).value
+        db.add(
+            Activity(
+                athlete_id=athlete.id,
+                source="strava",
+                external_id=r["id"],
+                name=r["name"][:255],
+                sport=sport,
+                sport_type=r["sport_type"],
+                start_time=start,
+                day=start.date(),
+                trainer=r["trainer"],
+                moving_s=r["moving_s"],
+                elapsed_s=r["elapsed_s"],
+                distance_m=r["distance_m"],
+                elev_gain_m=r["elev_gain_m"],
+                avg_speed=r.get("avg_speed"),
+                avg_hr=r.get("avg_hr"),
+                avg_watts=r.get("avg_watts"),
+                np_watts=r.get("avg_watts"),
+                device_watts=r.get("device_watts", False),
+                power_curve=r.get("power_curve") or None,
+                relative_effort=r.get("relative_effort"),
+                ef=r.get("ef"),
+                decoupling_pct=r.get("decoupling_pct"),
+                polyline=r.get("polyline"),
+            )
+        )
+    db.commit()
+    rescore_all(db, athlete)
+    db.commit()
+    return athlete
+
+
+def _drop_existing(db: Session) -> None:
+    old = db.scalar(select(Athlete).where(Athlete.is_demo.is_(True)))
+    if old:
+        db.execute(delete(WellnessDay).where(WellnessDay.athlete_id == old.id))
+        db.execute(delete(Activity).where(Activity.athlete_id == old.id))
+        db.delete(old)
+        db.commit()
+
+
 if __name__ == "__main__":
     import sys
 
@@ -406,7 +478,8 @@ if __name__ == "__main__":
             if s.scalar(select(Athlete.id).where(Athlete.is_demo.is_(True))):
                 print("demo athlete already present")
                 sys.exit(0)
-        a = build(s)
+        synthetic = "--synthetic" in sys.argv or not SNAPSHOT.exists()
+        a = build(s) if synthetic else build_from_snapshot(s)
         n = s.scalar(
             select(Activity.id).where(Activity.athlete_id == a.id).order_by(Activity.id.desc())
         )

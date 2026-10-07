@@ -35,3 +35,12 @@ def test_taper_beats_training_through():
     assert best.gain_vs_no_taper > 0
     assert 3 <= best.days <= 21
     assert len(plans) > 50
+
+
+def test_weak_signal_falls_back_to_standard_model():
+    rng = np.random.default_rng(3)
+    load = np.clip(rng.normal(80, 25, 200), 0, None)
+    idx = np.arange(20, 200, 4)
+    noise = rng.normal(0, 1, idx.size)  # performance unrelated to load
+    f = fit(load, idx, noise)
+    assert not f.personalised and f.tau1 == 42 and f.tau2 == 7

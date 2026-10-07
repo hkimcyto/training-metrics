@@ -9,6 +9,7 @@ const METHOD: Record<string, string> = {
   pace: 'pace',
   swim_pace: 'swim pace',
   heart_rate: 'heart rate',
+  relative_effort: 'Relative Effort',
   duration: 'duration',
 }
 

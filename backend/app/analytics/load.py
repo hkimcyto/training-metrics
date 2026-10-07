@@ -7,6 +7,8 @@ one hour at threshold. The method depends on what the workout recorded:
 * run with pace        -> rTSS from grade-adjusted pace vs threshold pace
 * swim                 -> sTSS from pace vs Critical Swim Speed (cubed)
 * anything with HR     -> hrTSS from Banister TRIMP, scaled to an hour at LTHR
+* Strava summary only  -> Relative Effort, rescaled to TSS using the athlete's
+                          own workouts that have both numbers
 * strength / other     -> duration-based estimate
 
 The functions are pure and work on plain numbers or numpy arrays so they can
@@ -35,6 +37,7 @@ class TssMethod(StrEnum):
     PACE = "pace"
     SWIM_PACE = "swim_pace"
     HEART_RATE = "heart_rate"
+    RELATIVE_EFFORT = "relative_effort"
     DURATION = "duration"
 
 
@@ -49,6 +52,9 @@ class Thresholds:
     max_hr: float = 192.0
     rest_hr: float = 50.0
     strength_tss_per_hour: float = 30.0
+    # TSS per point of Strava Relative Effort, calibrated per athlete from
+    # workouts that have both (see ingest.scoring.resolve_thresholds)
+    re_scale: float = 0.8
 
 
 @dataclass(frozen=True)
@@ -167,6 +173,7 @@ class WorkoutSummary:
     np_watts: float | None = None
     ngs: float | None = None  # normalized graded speed, m/s
     device_watts: bool = False
+    relative_effort: float | None = None
 
 
 def score(w: WorkoutSummary, t: Thresholds) -> TssResult:
@@ -187,6 +194,9 @@ def score(w: WorkoutSummary, t: Thresholds) -> TssResult:
 
     if w.avg_hr:
         return hr_tss(w.moving_s, w.avg_hr, t)
+
+    if w.relative_effort and w.sport is not Sport.STRENGTH:
+        return TssResult(w.relative_effort * t.re_scale, TssMethod.RELATIVE_EFFORT)
 
     per_hour = t.strength_tss_per_hour if w.sport is Sport.STRENGTH else 40.0
     return TssResult(w.moving_s / 3600 * per_hour, TssMethod.DURATION)

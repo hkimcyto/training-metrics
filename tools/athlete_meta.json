@@ -1,0 +1,10 @@
+{
+  "weight_kg": 77.1,
+  "max_hr": 192,
+  "ftp_watts": 214,
+  "race_name": "IRONMAN California",
+  "race_date": "2026-10-18",
+  "race_climb_m": 500,
+  "race_wetsuit": true,
+  "race_temp_c": 25
+}

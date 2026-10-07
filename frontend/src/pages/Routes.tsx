@@ -5,6 +5,7 @@ import { useRoutes } from '../api'
 import { Dot, Kpi, Panel, Q, Seg } from '../components/ui'
 import type { Units } from '../lib/format'
 import { distance, shortDate } from '../lib/format'
+import { placeName } from '../lib/places'
 import { decodePolyline } from '../lib/polyline'
 import type { RouteRow } from '../types'
 
@@ -28,17 +29,41 @@ export default function Routes({ units }: { units: Units }) {
     () => (routes.data ?? []).map((r) => ({ ...r, pts: decodePolyline(r.polyline) })).filter((r) => r.pts.length > 1),
     [routes.data],
   )
-  const shown = useMemo(() => decoded.filter((r) => sport === 'all' || r.sport === sport), [decoded, sport])
+  // Group routes into areas (~50 km cells) so the map frames one place at a time
+  // instead of zooming out to fit every trip.
+  const areas = useMemo(() => {
+    const groups = new Map<string, { key: string; lat: number; lng: number; n: number }>()
+    for (const r of decoded) {
+      const [lat, lng] = r.pts[Math.floor(r.pts.length / 2)]
+      const key = placeName(lat, lng) ?? `${Math.round(lat * 2) / 2},${Math.round(lng * 2) / 2}`
+      const g = groups.get(key) ?? { key, lat, lng, n: 0 }
+      g.n += 1
+      groups.set(key, g)
+    }
+    return [...groups.values()].sort((a, b) => b.n - a.n)
+  }, [decoded])
+  const [area, setArea] = useState<string | null>(null)
+  const activeArea = area ?? areas[0]?.key ?? null
+  const areaOf = (pts: [number, number][]) => {
+    const [lat, lng] = pts[Math.floor(pts.length / 2)]
+    return placeName(lat, lng) ?? `${Math.round(lat * 2) / 2},${Math.round(lng * 2) / 2}`
+  }
+
+  const shown = useMemo(
+    () =>
+      decoded.filter(
+        (r) => (sport === 'all' || r.sport === sport) && (activeArea === null || areaOf(r.pts) === activeArea),
+      ),
+    [decoded, sport, activeArea],
+  )
   const bounds = useMemo<LatLngBoundsExpression | null>(() => {
     const pts = shown.flatMap((r) => r.pts)
     if (!pts.length) return null
-    const lats = pts.map((p) => p[0]).sort((a, b) => a - b)
-    const lngs = pts.map((p) => p[1]).sort((a, b) => a - b)
-    // ignore the outer 2% so one trip away doesn't zoom the map out to a whole state
-    const q = (a: number[], f: number) => a[Math.min(a.length - 1, Math.floor(a.length * f))]
+    const lats = pts.map((p) => p[0])
+    const lngs = pts.map((p) => p[1])
     return [
-      [q(lats, 0.02), q(lngs, 0.02)],
-      [q(lats, 0.98), q(lngs, 0.98)],
+      [Math.min(...lats), Math.min(...lngs)],
+      [Math.max(...lats), Math.max(...lngs)],
     ]
   }, [shown])
 
@@ -78,6 +103,25 @@ export default function Routes({ units }: { units: Units }) {
           />
         </div>
       </div>
+
+      {areas.length > 1 && (
+        <div className="legend" style={{ gap: 6 }} role="group" aria-label="Area">
+          {areas.slice(0, 6).map((a, i) => (
+            <button
+              key={a.key}
+              className="btn"
+              aria-pressed={a.key === activeArea}
+              style={a.key === activeArea ? { borderColor: 'var(--accent)', color: 'var(--ink)' } : undefined}
+              onClick={() => {
+                setArea(a.key)
+                setSelected(null)
+              }}
+            >
+              {placeName(a.lat, a.lng) ?? `Area ${i + 1}`} · {a.n} {a.n === 1 ? 'route' : 'routes'}
+            </button>
+          ))}
+        </div>
+      )}
 
       <Q q={routes} height={110}>
         {() => {

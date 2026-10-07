@@ -98,8 +98,10 @@ export default function App() {
         {me.data?.is_demo && (
           <div className="demo-bar">
             <span>
-              <b>Demo</b>
-              You're viewing a sample athlete. Connect Strava to see your own training.
+              <b>Live demo</b>
+              {me.data.name === 'Demo Athlete'
+                ? "You're viewing a sample athlete. Connect Strava to see your own training."
+                : `Real Strava training from ${me.data.name}'s build to ${me.data.settings.race_name ?? 'race day'}. Route start and end points are trimmed for privacy.`}
             </span>
             {me.data.strava_enabled && (
               <a className="btn strava" href="/api/auth/strava/login">

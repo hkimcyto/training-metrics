@@ -3,6 +3,7 @@ and resolves the thresholds every score depends on."""
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, timedelta
 from typing import Any
 
@@ -16,6 +17,7 @@ from app.analytics.load import (
     Sport,
     Thresholds,
     WorkoutSummary,
+    hr_tss,
     normalized_graded_speed,
     normalized_power,
     score,
@@ -84,17 +86,25 @@ def resolve_thresholds(db: Session, athlete: Athlete) -> tuple[Thresholds, dict[
         css, sources["css"] = (e.value, e.source) if e else (d.css_speed, "default")
 
     max_hr = athlete.max_hr or d.max_hr
-    return (
-        Thresholds(
-            ftp_watts=ftp,
-            run_threshold_speed=run,
-            css_speed=css,
-            lthr=athlete.lthr or round(max_hr * 0.87),
-            max_hr=max_hr,
-            rest_hr=athlete.rest_hr or d.rest_hr,
-        ),
-        sources,
+    base = Thresholds(
+        ftp_watts=ftp,
+        run_threshold_speed=run,
+        css_speed=css,
+        lthr=athlete.lthr or round(max_hr * 0.87),
+        max_hr=max_hr,
+        rest_hr=athlete.rest_hr or d.rest_hr,
     )
+    # calibrate Relative Effort against heart-rate TSS on workouts that have both
+    ratios = [
+        hr_tss(a.moving_s, a.avg_hr, base).tss / a.relative_effort
+        for a in acts
+        if a.avg_hr and a.relative_effort and a.relative_effort >= 10 and a.sport in ("bike", "run")
+    ]
+    if len(ratios) >= 5:
+        sources["re_scale"] = f"calibrated on {len(ratios)} workouts"
+        return replace(base, re_scale=float(np.median(ratios))), sources
+    sources["re_scale"] = "default"
+    return base, sources
 
 
 def apply_streams(act: Activity, streams: dict[str, list[Any]]) -> None:
@@ -134,6 +144,7 @@ def rescore(act: Activity, t: Thresholds) -> None:
         np_watts=act.np_watts,
         ngs=act.graded_speed,
         device_watts=act.device_watts,
+        relative_effort=act.relative_effort,
     )
     r = score(summary, t)
     act.tss, act.tss_method, act.intensity = round(r.tss, 1), r.method.value, r.intensity_factor
