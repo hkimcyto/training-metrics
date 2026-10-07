@@ -24,7 +24,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from app.analytics.polyline import decode, encode  # noqa: E402
 
-KEEP = {"Run", "TrailRun", "Ride", "VirtualRide", "GravelRide", "Swim", "OpenWaterSwim", "WeightTraining", "Workout"}
+KEEP = {
+    "Run",
+    "TrailRun",
+    "Ride",
+    "VirtualRide",
+    "GravelRide",
+    "Swim",
+    "OpenWaterSwim",
+    "WeightTraining",
+    "Workout",
+}
 TRIM_M = 500.0
 
 
@@ -59,7 +69,11 @@ def load_pages(raw: Path) -> list[dict]:
 def stream_metrics(s: dict) -> dict:
     """EF and decoupling from a down-sampled HR + speed stream. Samples where
     the athlete was stopped (speed under 2 m/s) are ignored."""
-    pairs = [(h, v) for h, v in zip(s["hr"][1:], s["x"][1:], strict=False) if h and v and v > 2.0 and h > 90]
+    pairs = [
+        (h, v)
+        for h, v in zip(s["hr"][1:], s["x"][1:], strict=False)
+        if h and v and v > 2.0 and h > 90
+    ]
     if len(pairs) < 10:
         return {}
     hr = sum(h for h, _ in pairs) / len(pairs)
@@ -80,7 +94,11 @@ def main() -> None:
     ap.add_argument("--since", default="2000-01-01")
     ap.add_argument("--meta", type=Path, help="JSON file with athlete settings (race, weight, FTP)")
     ap.add_argument("--trust-trainer-power", action="store_true")
-    ap.add_argument("--out", type=Path, default=Path(__file__).resolve().parents[1] / "backend/app/fixtures/athlete.json.gz")
+    ap.add_argument(
+        "--out",
+        type=Path,
+        default=Path(__file__).resolve().parents[1] / "backend/app/fixtures/athlete.json.gz",
+    )
     args = ap.parse_args()
 
     out = []
