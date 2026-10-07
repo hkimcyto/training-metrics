@@ -67,9 +67,9 @@ export default function Routes({ units }: { units: Units }) {
     ]
   }, [shown])
 
-  const tiles = dark()
-    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-    : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+  // OpenStreetMap's standard tiles need no API key. In dark mode the tiles are
+  // inverted with a CSS filter (see .map in styles.css) rather than swapped.
+  const tiles = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 
   return (
     <>
@@ -172,7 +172,8 @@ export default function Routes({ units }: { units: Units }) {
                 <MapContainer center={[37.78, -122.45]} zoom={11} style={{ height: '100%' }} scrollWheelZoom={false}>
                   <TileLayer
                     url={tiles}
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>'
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                    maxZoom={19}
                   />
                   <FitBounds bounds={bounds} />
                   {shown.map((r) => (

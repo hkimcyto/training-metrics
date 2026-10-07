@@ -581,3 +581,16 @@ tr.clickable:hover td {
 .error {
   color: var(--bad);
 }
+
+/* muted basemap so the routes carry the colour; inverted for dark mode */
+.map .leaflet-tile-pane {
+  filter: grayscale(0.85) contrast(0.9) brightness(1.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .map .leaflet-tile-pane {
+    filter: grayscale(1) invert(1) brightness(0.85) contrast(0.85);
+  }
+}
+:root[data-theme='dark'] .map .leaflet-tile-pane {
+  filter: grayscale(1) invert(1) brightness(0.85) contrast(0.85);
+}
