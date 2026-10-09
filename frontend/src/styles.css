@@ -519,9 +519,14 @@ tr.clickable:hover td {
 .field {
   display: grid;
   gap: 4px;
+  align-content: start; /* a neighbour's hint text shouldn't push this input down */
+  min-width: 0; /* let long select options shrink with their grid column */
 }
-.field input,
+.field input:not([type='checkbox']),
 .field select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   font: inherit;
   padding: 7px 10px;
   border-radius: 8px;

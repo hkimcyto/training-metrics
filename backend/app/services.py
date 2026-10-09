@@ -14,8 +14,9 @@ from sqlalchemy.orm import Session
 
 from app.analytics import banister, pmc, status
 from app.analytics.power_curve import fit_critical_power, merge_curves
-from app.analytics.race import RACE_TYPES, AthleteProfile, Course, simulate
-from app.db.models import Activity, Athlete, WellnessDay
+from app.analytics.race import RACE_TYPES, AthleteProfile, Course, resolve_race, simulate
+from app.analytics.races_catalog import CATALOG
+from app.db.models import Activity, Athlete, Race, WellnessDay
 from app.ingest.scoring import resolve_thresholds
 
 ENDURANCE = ("swim", "bike", "run")
@@ -180,13 +181,14 @@ def pmc_view(db: Session, athlete: Athlete, days: int = 150) -> dict[str, Any]:
     }
 
     forecast = None
-    if athlete.race_date and athlete.race_date > today:
-        days_to_race = (athlete.race_date - today).days
+    target = target_race(db, athlete)
+    if target and target.day > today:
+        days_to_race = (target.day - today).days
         best, plans = banister.best_taper(load, fit, days_to_race)
         proj = pmc.project(series[-1], best.daily_tss + [0.0])
         forecast = {
-            "race_date": athlete.race_date.isoformat(),
-            "race_name": athlete.race_name,
+            "race_date": target.day.isoformat(),
+            "race_name": target.name,
             "taper_days": best.days,
             "taper_reduction": best.reduction,
             "gain_vs_no_taper": best.gain_vs_no_taper,
@@ -233,17 +235,114 @@ def race_types() -> list[dict[str, str]]:
     return [{"key": r.key, "label": r.label, "kind": r.kind} for r in RACE_TYPES.values()]
 
 
-def race_prediction(db: Session, athlete: Athlete, race_type: str | None = None) -> dict[str, Any]:
+def target_race(db: Session, athlete: Athlete) -> Race | None:
+    """The race the athlete is building toward: the next A race, else the
+    next race of any priority."""
     today = _today(db, athlete)
-    thresholds, sources = resolve_thresholds(db, athlete)
-    view = pmc_view(db, athlete, days=1)
-    last = view["series"][-1] if view["series"] else {"ctl": 0, "tsb": 0}
-    fc = view["forecast"]
-    ctl = fc["race_day"]["ctl"] if fc else last["ctl"]
-    tsb = fc["race_day"]["tsb"] if fc else 15.0
+    upcoming = [r for r in athlete.races if r.day >= today]
+    return next((r for r in upcoming if r.priority == "A"), upcoming[0] if upcoming else None)
 
-    since = today - timedelta(weeks=8)
-    recent = activities(db, athlete, since)
+
+def race_dict(r: Race) -> dict[str, Any]:
+    race = resolve_race(r.race_type, r.distance_m)
+    return {
+        "id": r.id,
+        "name": r.name,
+        "day": r.day.isoformat(),
+        "race_type": r.race_type,
+        "label": race.label,
+        "kind": race.kind,
+        "distance_m": r.distance_m,
+        "priority": r.priority,
+        "climb_m": r.climb_m,
+        "temp_c": r.temp_c,
+        "wetsuit": r.wetsuit,
+        "catalog_key": r.catalog_key,
+    }
+
+
+def races_view(db: Session, athlete: Athlete) -> dict[str, Any]:
+    target = target_race(db, athlete)
+    return {
+        "races": [race_dict(r) for r in athlete.races],
+        "target_id": target.id if target else None,
+        "today": _today(db, athlete).isoformat(),
+        "race_types": race_types(),
+        "catalog": CATALOG,
+    }
+
+
+def _race_day_form(db: Session, athlete: Athlete, day: date | None) -> tuple[float, float]:
+    """Fitness (CTL) and form (TSB) on race day. A past race uses what the
+    athlete actually had; a future one assumes the best taper into it; with
+    no date, today's fitness arriving fresh."""
+    acts = activities(db, athlete)
+    today = _today(db, athlete)
+    if not acts:
+        return 0.0, 15.0
+    start = acts[0].day
+    series = pmc.compute_pmc(tss_by_day(acts), start, today)
+    if day is None:
+        return series[-1].ctl, 15.0
+    if day <= today:
+        row = next((p for p in series if p.day == day), series[0] if day < start else series[-1])
+        return row.ctl, row.tsb
+    load = np.array([d.tss for d in series])
+    fit = banister.fit(load, *_performance_markers(acts, start))
+    best, _ = banister.best_taper(load, fit, (day - today).days)
+    proj = pmc.project(series[-1], best.daily_tss + [0.0])
+    return proj[-1][0], proj[-1][2]
+
+
+def race_prediction(
+    db: Session,
+    athlete: Athlete,
+    race_id: int | None = None,
+    race_type: str | None = None,
+    distance_m: float | None = None,
+) -> dict[str, Any]:
+    """Forecast a saved race (by id), or any distance on a typical course
+    (by type). With neither, the target race; with no races at all, a
+    marathon."""
+    today = _today(db, athlete)
+    target = target_race(db, athlete)
+    saved: Race | None = None
+    if race_id is not None:
+        saved = next((r for r in athlete.races if r.id == race_id), None)
+        if saved is None:
+            raise LookupError("race not found")
+    elif race_type is None:
+        saved = target
+
+    if saved:
+        race = resolve_race(saved.race_type, saved.distance_m)
+        course = Course(
+            name=saved.name,
+            race_type=saved.race_type,
+            distance_m=saved.distance_m,
+            bike_climb_m=saved.climb_m if saved.climb_m is not None else race.bike_m * 0.006,
+            wetsuit=saved.wetsuit,
+            run_temp_c=saved.temp_c,
+        )
+        day: date | None = saved.day
+    else:
+        race_type = race_type or "marathon"
+        race = resolve_race(race_type, distance_m)
+        # any other distance runs on a typical course: rolling, mild, wetsuit legal
+        course = Course(
+            name=race.label,
+            race_type=race_type,
+            distance_m=distance_m,
+            bike_climb_m=race.bike_m * 0.006,
+            run_temp_c=18,
+        )
+        day = target.day if target else None
+
+    thresholds, sources = resolve_thresholds(db, athlete)
+    ctl, tsb = _race_day_form(db, athlete, day)
+    # long sessions in the 8 weeks before the race (or before today, if it's ahead)
+    until = min(day, today) if day else today
+    recent = [a for a in activities(db, athlete, until - timedelta(weeks=8)) if a.day <= until]
     longest_run = max((a.distance_m for a in recent if a.sport == "run"), default=0.0)
     longest_ride = max((a.moving_s for a in recent if a.sport == "bike"), default=0.0)
 
@@ -257,37 +356,23 @@ def race_prediction(db: Session, athlete: Athlete, race_type: str | None = None)
         longest_run_8wk_m=longest_run,
         longest_ride_8wk_s=longest_ride,
     )
-    target = athlete.race_type if athlete.race_type in RACE_TYPES else "ironman"
-    race_type = race_type or target
-    race = RACE_TYPES[race_type]
-    if race_type == target:
-        # the athlete's own race, with the course details from settings
-        course = Course(
-            name=athlete.race_name or race.label,
-            race_type=race_type,
-            bike_climb_m=athlete.race_climb_m,
-            wetsuit=athlete.race_wetsuit,
-            run_temp_c=athlete.race_temp_c,
-        )
-    else:
-        # any other distance runs on a typical course: rolling, mild, wetsuit legal
-        course = Course(
-            name=race.label, race_type=race_type, bike_climb_m=race.bike_m * 0.006, run_temp_c=18
-        )
     p = simulate(profile, course, n=6000)
 
     def leg(s: Any) -> dict[str, float]:
         return {"p10": s.p10, "p50": s.p50, "p90": s.p90}
 
     garmin = athlete.garmin_profile or {}
-    garmin_time = (garmin.get("race_predictions") or {}).get(race_type)
+    garmin_time = (garmin.get("race_predictions") or {}).get(race.key)
     return {
-        "race_type": race_type,
-        "is_target": race_type == target,
+        "race": race_dict(saved) if saved else None,
+        "race_type": race.key,
+        "race_day": day.isoformat() if day else None,
+        "is_target": saved is not None and target is not None and saved.id == target.id,
         "garmin_prediction": garmin_time
         and {"time_s": garmin_time, "as_of": garmin.get("race_predictions_as_of")},
         "course": {
             "name": course.name,
+            "label": race.label,
             "kind": race.kind,
             "swim_m": race.swim_m,
             "bike_m": race.bike_m,

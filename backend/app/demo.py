@@ -30,7 +30,7 @@ from app.analytics.banister import predict
 from app.analytics.load import normalized_power
 from app.analytics.polyline import encode
 from app.analytics.power_curve import best_efforts
-from app.db.models import Activity, Athlete, Base, WellnessDay
+from app.db.models import Activity, Athlete, Base, Race, WellnessDay
 from app.db.session import SessionLocal, engine
 from app.ingest.scoring import sport_of
 from app.ingest.sync import rescore_all
@@ -210,15 +210,20 @@ def build(db: Session) -> Athlete:
         ftp_watts=236,
         run_threshold_speed=4.25,
         css_speed=1.02,
-        race_name="Fall IRONMAN (demo)",
-        race_date=RACE,
-        race_type="ironman",
-        race_climb_m=1200,
-        race_wetsuit=True,
-        race_temp_c=24,
     )
     db.add(athlete)
     db.flush()
+    db.add(
+        Race(
+            athlete_id=athlete.id,
+            name="Fall IRONMAN (demo)",
+            day=RACE,
+            race_type="ironman",
+            climb_m=1200,
+            wetsuit=True,
+            temp_c=24,
+        )
+    )
 
     start = END - timedelta(weeks=WEEKS) + timedelta(days=1)
     days = (END - start).days + 1
@@ -417,15 +422,20 @@ def build_from_snapshot(db: Session, path: Path = SNAPSHOT) -> Athlete:
         weight_kg=meta.get("weight_kg", 77),
         max_hr=meta.get("max_hr", 192),
         ftp_watts=meta.get("ftp_watts"),
-        race_name=meta.get("race_name", "IRONMAN California"),
-        race_date=date.fromisoformat(meta.get("race_date", "2026-10-18")),
-        race_type=meta.get("race_type", "ironman"),
-        race_climb_m=meta.get("race_climb_m", 500),
-        race_wetsuit=meta.get("race_wetsuit", True),
-        race_temp_c=meta.get("race_temp_c", 25),
     )
     db.add(athlete)
     db.flush()
+    db.add(
+        Race(
+            athlete_id=athlete.id,
+            name=meta.get("race_name", "IRONMAN California"),
+            day=date.fromisoformat(meta.get("race_date", "2026-10-18")),
+            race_type=meta.get("race_type", "ironman"),
+            climb_m=meta.get("race_climb_m", 500),
+            wetsuit=meta.get("race_wetsuit", True),
+            temp_c=meta.get("race_temp_c", 25),
+        )
+    )
     for r in data["activities"]:
         start = datetime.fromisoformat(r["start_local"])
         sport = sport_of(r["sport_type"]).value
@@ -466,6 +476,7 @@ def _drop_existing(db: Session) -> None:
     old = db.scalar(select(Athlete).where(Athlete.is_demo.is_(True)))
     if old:
         db.execute(delete(WellnessDay).where(WellnessDay.athlete_id == old.id))
+        db.execute(delete(Race).where(Race.athlete_id == old.id))
         db.execute(delete(Activity).where(Activity.athlete_id == old.id))
         db.delete(old)
         db.commit()

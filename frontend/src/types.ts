@@ -17,12 +17,6 @@ export interface Me {
     max_hr: number | null
     rest_hr: number | null
     lthr: number | null
-    race_name: string | null
-    race_date: string | null
-    race_type: string
-    race_climb_m: number
-    race_wetsuit: boolean
-    race_temp_c: number
   }
   thresholds: {
     ftp_watts: number
@@ -33,13 +27,51 @@ export interface Me {
     rest_hr: number
     sources: Record<string, string>
   }
-  race_types: RaceType[]
+  target_race: SavedRace | null
 }
 
 export interface RaceType {
   key: string
   label: string
   kind: 'run' | 'triathlon'
+}
+
+export type Priority = 'A' | 'B' | 'C'
+
+export interface SavedRace {
+  id: number
+  name: string
+  day: string
+  race_type: string
+  label: string
+  kind: 'run' | 'triathlon'
+  distance_m: number | null
+  priority: Priority
+  climb_m: number | null
+  temp_c: number
+  wetsuit: boolean
+  catalog_key: string | null
+}
+
+export type RaceInput = Omit<SavedRace, 'id' | 'label' | 'kind'>
+
+export interface CatalogRace {
+  key: string
+  name: string
+  race_type: string
+  location: string
+  month: string
+  temp_c: number
+  climb_m: number | null
+  wetsuit: boolean
+}
+
+export interface Races {
+  races: SavedRace[]
+  target_id: number | null
+  today: string
+  race_types: RaceType[]
+  catalog: CatalogRace[]
 }
 
 export interface Week {
@@ -127,11 +159,14 @@ export interface Leg {
 export type LegKey = 'swim' | 't1' | 'bike' | 't2' | 'run'
 
 export interface RacePrediction {
+  race: SavedRace | null
   race_type: string
+  race_day: string | null
   is_target: boolean
   garmin_prediction: { time_s: number; as_of: string | null } | null
   course: {
     name: string
+    label: string
     kind: 'run' | 'triathlon'
     swim_m: number
     bike_m: number

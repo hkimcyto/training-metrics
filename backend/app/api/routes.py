@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from app import services
 from app.analytics.race import RACE_TYPES
 from app.config import Settings, get_settings
-from app.db.models import Activity, Athlete
+from app.db.models import Activity, Athlete, Race
 from app.db.session import SessionLocal, get_db
 from app.ingest import garmin
 from app.ingest.scoring import resolve_thresholds
@@ -32,7 +32,7 @@ from app.ingest.strava import StravaClient, StravaError, authorize_url
 from app.ingest.sync import handle_webhook_event, is_sync_active, rescore_all, sync_athlete
 
 router = APIRouter(prefix="/api")
-RaceKey = Literal[tuple(RACE_TYPES)]  # type: ignore[valid-type]
+RaceTypeIn = Literal[(*RACE_TYPES, "run")]  # type: ignore[valid-type]  # "run" = custom distance
 COOKIE = "tri_session"
 
 DbDep = Annotated[Session, Depends(get_db)]
@@ -108,15 +108,9 @@ def me(athlete: AthleteDep, db: DbDep, settings: SettingsDep) -> dict[str, Any]:
             "max_hr": athlete.max_hr,
             "rest_hr": athlete.rest_hr,
             "lthr": athlete.lthr,
-            "race_name": athlete.race_name,
-            "race_date": athlete.race_date.isoformat() if athlete.race_date else None,
-            "race_type": athlete.race_type,
-            "race_climb_m": athlete.race_climb_m,
-            "race_wetsuit": athlete.race_wetsuit,
-            "race_temp_c": athlete.race_temp_c,
         },
         "thresholds": {**t.__dict__, "sources": sources},
-        "race_types": services.race_types(),
+        "target_race": (r := services.target_race(db, athlete)) and services.race_dict(r),
     }
 
 
@@ -128,12 +122,6 @@ class SettingsIn(BaseModel):
     max_hr: float | None = Field(None, gt=120, lt=230)
     rest_hr: float | None = Field(None, gt=25, lt=100)
     lthr: float | None = Field(None, gt=100, lt=220)
-    race_name: str | None = Field(None, max_length=120)
-    race_date: date | None = None
-    race_type: RaceKey | None = None
-    race_climb_m: float | None = Field(None, ge=0, lt=5000)
-    race_wetsuit: bool | None = None
-    race_temp_c: float | None = Field(None, gt=-5, lt=45)
 
 
 @router.patch("/me/settings")
@@ -294,8 +282,92 @@ def training_status(athlete: AthleteDep, db: DbDep) -> dict[str, Any]:
 
 
 @router.get("/race/prediction")
-def race(athlete: AthleteDep, db: DbDep, race: RaceKey | None = None) -> dict[str, Any]:
-    return services.race_prediction(db, athlete, race)
+def race(
+    athlete: AthleteDep,
+    db: DbDep,
+    race_id: int | None = None,
+    race: RaceTypeIn | None = None,
+    distance_m: float | None = Query(None, gt=100, lt=400_000),
+) -> dict[str, Any]:
+    if race == "run" and not distance_m:
+        raise HTTPException(422, "A custom run needs a distance")
+    try:
+        return services.race_prediction(db, athlete, race_id, race, distance_m)
+    except LookupError as e:
+        raise HTTPException(404, "Race not found") from e
+
+
+# ------------------------------------------------------------------ races
+
+
+class RaceIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    day: date
+    race_type: RaceTypeIn
+    distance_m: float | None = Field(None, gt=100, lt=400_000)
+    priority: Literal["A", "B", "C"] = "A"
+    climb_m: float | None = Field(None, ge=0, lt=5000)
+    temp_c: float = Field(18, gt=-10, lt=45)
+    wetsuit: bool = True
+    catalog_key: str | None = Field(None, max_length=40)
+
+
+class RacePatch(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=120)
+    day: date | None = None
+    race_type: RaceTypeIn | None = None
+    distance_m: float | None = Field(None, gt=100, lt=400_000)
+    priority: Literal["A", "B", "C"] | None = None
+    climb_m: float | None = Field(None, ge=0, lt=5000)
+    temp_c: float | None = Field(None, gt=-10, lt=45)
+    wetsuit: bool | None = None
+
+
+def _check_distance(r: Race) -> None:
+    if r.race_type == "run" and not r.distance_m:
+        raise HTTPException(422, "A custom run needs a distance")
+    if r.race_type != "run":
+        r.distance_m = None  # standard races have fixed distances
+
+
+def _own_race(db: Session, athlete: Athlete, race_id: int) -> Race:
+    r = db.get(Race, race_id)
+    if r is None or r.athlete_id != athlete.id:
+        raise HTTPException(404, "Race not found")
+    return r
+
+
+@router.get("/races")
+def list_races(athlete: AthleteDep, db: DbDep) -> dict[str, Any]:
+    return services.races_view(db, athlete)
+
+
+@router.post("/races", status_code=201)
+def add_race(body: RaceIn, athlete: OwnerDep, db: DbDep) -> dict[str, Any]:
+    r = Race(athlete_id=athlete.id, **body.model_dump())
+    _check_distance(r)
+    db.add(r)
+    db.commit()
+    db.refresh(r)
+    return services.race_dict(r)
+
+
+@router.patch("/races/{race_id}")
+def edit_race(race_id: int, body: RacePatch, athlete: OwnerDep, db: DbDep) -> dict[str, Any]:
+    r = _own_race(db, athlete, race_id)
+    for k, v in body.model_dump(exclude_unset=True).items():
+        if v is not None or k in ("distance_m", "climb_m"):
+            setattr(r, k, v)
+    _check_distance(r)
+    db.commit()
+    return services.race_dict(r)
+
+
+@router.delete("/races/{race_id}", status_code=204)
+def delete_race(race_id: int, athlete: OwnerDep, db: DbDep) -> Response:
+    db.delete(_own_race(db, athlete, race_id))
+    db.commit()
+    return Response(status_code=204)
 
 
 @router.get("/power-curve")

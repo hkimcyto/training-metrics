@@ -66,7 +66,7 @@ def test_snapshot_loads_and_calibrates_relative_effort(tmp_path, monkeypatch):
     Base.metadata.create_all(eng)
     with sessionmaker(bind=eng)() as db:
         a = demo.build_from_snapshot(db, snap)
-        assert a.is_demo and a.race_name == "IRONMAN California" and a.ftp_watts == 210
+        assert a.is_demo and a.races[0].name == "IRONMAN California" and a.ftp_watts == 210
         t, sources = resolve_thresholds(db, a)
         assert "calibrated" in sources["re_scale"]
         no_hr = db.scalar(select(Activity).where(Activity.external_id == "b10"))

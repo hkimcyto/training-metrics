@@ -71,8 +71,8 @@ export default function App() {
     return () => clearInterval(id)
   }, [running, qc])
   const units: Units = me.data?.measurement ?? 'imperial'
-  const race = me.data?.settings.race_date
-  const daysOut = race && me.data ? Math.round((Date.parse(race) - Date.parse(me.data.today)) / 864e5) : null
+  const target = me.data?.target_race
+  const daysOut = target && me.data ? Math.round((Date.parse(target.day) - Date.parse(me.data.today)) / 864e5) : null
 
   return (
     <>
@@ -86,7 +86,7 @@ export default function App() {
             <span className="spacer" />
             {daysOut !== null && daysOut >= 0 && (
               <span className="countdown">
-                <b>{daysOut}</b> days to {me.data?.settings.race_name ?? 'race day'}
+                <b>{daysOut}</b> days to {target?.name ?? 'race day'}
               </span>
             )}
             {me.data && !me.data.is_demo && (
@@ -117,7 +117,7 @@ export default function App() {
               <b>Live demo</b>
               {me.data.name === 'Demo Athlete'
                 ? "You're viewing a sample athlete. Connect Strava to see your own training."
-                : `Real Strava training from ${me.data.name}'s build to ${me.data.settings.race_name ?? 'race day'}. Route start and end points are trimmed for privacy.`}
+                : `Real Strava training from ${me.data.name}'s build to ${me.data.target_race?.name ?? 'race day'}. Route start and end points are trimmed for privacy.`}
             </span>
             {me.data.strava_enabled && (
               <a className="btn strava" href="/api/auth/strava/login">

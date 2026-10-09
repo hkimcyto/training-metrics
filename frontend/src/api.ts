@@ -6,8 +6,11 @@ import type {
   Me,
   Pmc,
   PowerCurve,
+  RaceInput,
   RacePrediction,
+  Races,
   RouteRow,
+  SavedRace,
   TrainingStatus,
   Wellness,
 } from './types'
@@ -31,6 +34,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(r.status, String(detail))
   }
+  if (r.status === 204) return undefined as T
   return r.json() as Promise<T>
 }
 
@@ -49,12 +53,37 @@ export const useMe = () =>
 export const useDashboard = (weeks = 12) =>
   useQuery({ queryKey: ['dashboard', weeks], queryFn: get<Dashboard>(`/dashboard?weeks=${weeks}`) })
 export const usePmc = (days = 150) => useQuery({ queryKey: ['pmc', days], queryFn: get<Pmc>(`/pmc?days=${days}`) })
-export const useRace = (race?: string) =>
+/** Forecast a saved race by id, or any standard distance by type. */
+export const useRace = (pick: { raceId?: number; type?: string } | null) =>
   useQuery({
-    queryKey: ['race', race],
-    queryFn: get<RacePrediction>(`/race/prediction${race ? `?race=${race}` : ''}`),
+    queryKey: ['race', pick],
+    queryFn: get<RacePrediction>(
+      `/race/prediction${pick?.raceId != null ? `?race_id=${pick.raceId}` : pick?.type ? `?race=${pick.type}` : ''}`,
+    ),
+    enabled: pick != null,
     placeholderData: (prev) => prev,
   })
+export const useRaces = () => useQuery({ queryKey: ['races'], queryFn: get<Races>('/races') })
+
+/** Adding, editing or removing a race can move the target, the taper and the countdown. */
+function useRaceMutation<A, R>(fn: (arg: A) => Promise<R>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => Promise.all(['races', 'race', 'me', 'pmc'].map((k) => qc.invalidateQueries({ queryKey: [k] }))),
+  })
+}
+const json = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+})
+export const useAddRace = () => useRaceMutation((body: RaceInput) => request<SavedRace>('/races', json('POST', body)))
+export const useEditRace = () =>
+  useRaceMutation(({ id, ...body }: Partial<RaceInput> & { id: number }) =>
+    request<SavedRace>(`/races/${id}`, json('PATCH', body)),
+  )
+export const useDeleteRace = () => useRaceMutation((id: number) => request(`/races/${id}`, { method: 'DELETE' }))
 export const usePowerCurve = (days = 90) =>
   useQuery({ queryKey: ['power', days], queryFn: get<PowerCurve>(`/power-curve?days=${days}`) })
 export const useEfficiency = () => useQuery({ queryKey: ['eff'], queryFn: get<EfficiencyTrend>('/efficiency') })

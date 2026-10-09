@@ -39,12 +39,6 @@ function SettingsForm({ m }: { m: Me }) {
   const [form, setForm] = useState<Form>(() => {
     const s = m.settings
     return {
-      race_name: s.race_name ?? '',
-      race_date: s.race_date ?? '',
-      race_type: s.race_type,
-      race_climb_m: String(s.race_climb_m),
-      race_temp_c: String(s.race_temp_c),
-      race_wetsuit: s.race_wetsuit,
       weight_kg: String(s.weight_kg),
       ftp_watts: s.ftp_watts ? String(Math.round(s.ftp_watts)) : '',
       run_pace: toPace(s.run_threshold_speed, runPer),
@@ -57,18 +51,11 @@ function SettingsForm({ m }: { m: Me }) {
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm({ ...form, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
-  const tri = m.race_types.find((t) => t.key === form.race_type)?.kind === 'triathlon'
   const num = (k: string) => (form[k] === '' ? null : Number(form[k]))
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     const body: Partial<Me['settings']> = {
-      race_name: (form.race_name as string) || null,
-      race_date: (form.race_date as string) || null,
-      race_type: form.race_type as string,
-      race_climb_m: num('race_climb_m') ?? 1500,
-      race_temp_c: num('race_temp_c') ?? 22,
-      race_wetsuit: Boolean(form.race_wetsuit),
       weight_kg: num('weight_kg') ?? 75,
       ftp_watts: num('ftp_watts'),
       run_threshold_speed: fromPace(form.run_pace as string, runPer),
@@ -99,42 +86,11 @@ function SettingsForm({ m }: { m: Me }) {
         </div>
       </div>
       <form onSubmit={submit} style={{ display: 'grid', gap: 16 }}>
-        <Panel title="Race">
-          <div className="form">
-            {field('race_name', 'Race name')}
-            {field('race_date', 'Race date', undefined, 'date')}
-            <div className="field">
-              <label htmlFor="race_type">Distance</label>
-              <select id="race_type" value={String(form.race_type)} onChange={set('race_type')} disabled={m.is_demo}>
-                {m.race_types.map((t) => (
-                  <option key={t.key} value={t.key}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-              <small>The race forecast opens on this distance</small>
-            </div>
-            {tri && field('race_climb_m', 'Bike climbing (m)', 'Total elevation gain on the bike course')}
-            {field(
-              'race_temp_c',
-              tri ? 'Run temperature (°C)' : 'Race temperature (°C)',
-              'Expected temperature during the run',
-            )}
-            {tri && (
-              <div className="field">
-                <label htmlFor="race_wetsuit">
-                  <input
-                    id="race_wetsuit"
-                    type="checkbox"
-                    checked={Boolean(form.race_wetsuit)}
-                    onChange={set('race_wetsuit')}
-                    disabled={m.is_demo}
-                  />{' '}
-                  Wetsuit-legal swim
-                </label>
-              </div>
-            )}
-          </div>
+        <Panel title="Races">
+          <p style={{ margin: 0 }}>
+            Your race calendar lives on the <a href="#race">Race forecast</a> page: add races from a list or your own,
+            set their priority, and forecast each one.
+          </p>
         </Panel>
         <Panel title="Thresholds">
           <div className="form">

@@ -99,3 +99,13 @@ def test_triathlon_legs_in_order():
                 "t2",
                 "run",
             ]
+
+
+def test_custom_run_distances_fit_between_the_standard_ones():
+    from app.analytics.race import resolve_race
+
+    t = {d: simulate(A, Course(race_type="run", distance_m=d, run_temp_c=18), n=300).total.p50
+         for d in (5000, 8000, 10_000, 15_000, 21_097.5)}  # fmt: skip
+    assert t[5000] < t[8000] < t[10_000] < t[15_000] < t[21_097.5]
+    assert resolve_race("run", 15_000).label == "15 km run"
+    assert resolve_race("run", 42_195).key == "marathon"  # a standard distance stays standard

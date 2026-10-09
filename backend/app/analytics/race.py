@@ -88,6 +88,43 @@ RACE_TYPES: dict[str, RaceType] = {
 }  # fmt: skip
 
 
+RUN_KEYS = ("mile", "5k", "10k", "half_marathon", "marathon")
+
+
+def run_race(distance_m: float) -> RaceType:
+    """A running race at any distance, its pacing interpolated (on log
+    distance) between the standard distances either side of it."""
+    std = [RACE_TYPES[k] for k in RUN_KEYS]
+    for r in std:
+        if abs(r.run_m - distance_m) < 1:
+            return r
+    x = np.log([r.run_m for r in std])
+    t = float(np.log(distance_m))
+
+    def interp(attr: str) -> float:
+        return float(np.interp(t, x, [getattr(r, attr) for r in std]))
+
+    km = distance_m / 1000
+    return RaceType(
+        "run",
+        f"{round(km, 1):g} km run",
+        distance_m,
+        interp("run_floor"),
+        interp("run_ceiling"),
+        interp("run_fade_sd"),
+        interp("heat_per_c"),
+    )
+
+
+def resolve_race(race_type: str, distance_m: float | None = None) -> RaceType:
+    """A standard race, or a custom-distance run when `race_type` is "run"."""
+    if race_type == "run":
+        if not distance_m:
+            raise ValueError("a custom run needs a distance")
+        return run_race(distance_m)
+    return RACE_TYPES[race_type]
+
+
 @dataclass(frozen=True)
 class Course:
     name: str = "Full Ironman"
@@ -96,10 +133,11 @@ class Course:
     wetsuit: bool = True
     run_temp_c: float = 22.0
     air_density: float = 1.2
+    distance_m: float | None = None  # only for a custom-distance run
 
     @property
     def race(self) -> RaceType:
-        return RACE_TYPES[self.race_type]
+        return resolve_race(self.race_type, self.distance_m)
 
 
 @dataclass(frozen=True)

@@ -14,6 +14,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    true,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -47,13 +48,6 @@ class Athlete(Base):
     # thresholds and race predictions read from a Garmin export
     garmin_profile: Mapped[dict | None] = mapped_column(JSON)
 
-    race_name: Mapped[str | None] = mapped_column(String(120))
-    race_date: Mapped[date | None] = mapped_column(Date)
-    race_type: Mapped[str] = mapped_column(String(16), default="ironman", server_default="ironman")
-    race_climb_m: Mapped[float] = mapped_column(Float, default=1500)
-    race_wetsuit: Mapped[bool] = mapped_column(Boolean, default=True)
-    race_temp_c: Mapped[float] = mapped_column(Float, default=22)
-
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sync_state: Mapped[str] = mapped_column(String(16), default="idle", server_default="idle")
     sync_message: Mapped[str | None] = mapped_column(String(255))
@@ -65,6 +59,33 @@ class Athlete(Base):
     activities: Mapped[list[Activity]] = relationship(
         back_populates="athlete", cascade="all, delete-orphan"
     )
+    races: Mapped[list[Race]] = relationship(
+        back_populates="athlete", cascade="all, delete-orphan", order_by="Race.day"
+    )
+
+
+class Race(Base):
+    """A race on the athlete's calendar. The next upcoming "A" race is the
+    target that the taper and the countdown work toward."""
+
+    __tablename__ = "races"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    athlete_id: Mapped[int] = mapped_column(
+        ForeignKey("athletes.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    day: Mapped[date] = mapped_column(Date)
+    race_type: Mapped[str] = mapped_column(String(16))
+    distance_m: Mapped[float | None] = mapped_column(Float)  # custom-distance runs only
+    priority: Mapped[str] = mapped_column(String(1), default="A", server_default="A")
+    climb_m: Mapped[float | None] = mapped_column(Float)  # bike climbing; triathlons only
+    temp_c: Mapped[float] = mapped_column(Float, default=18, server_default="18")
+    wetsuit: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    catalog_key: Mapped[str | None] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    athlete: Mapped[Athlete] = relationship(back_populates="races")
 
 
 class Activity(Base):

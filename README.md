@@ -21,7 +21,8 @@ The live demo runs on my own training: about 600 Strava sessions from January 20
 | **Training status** | Garmin's own status (Productive, Maintaining, Peaking, Strained, Recovery…) with the VO2 max, acute/chronic load and readiness behind it, read from the Garmin export. Athletes without it get an estimate in the same vocabulary from fitness trend, load ratio and HRV. |
 | **Personal response model** | A Banister impulse-response model fitted to the athlete's aerobic-efficiency markers by regularised non-linear least squares. With a short history it falls back to population constants. |
 | **Taper optimiser** | A grid search over taper length and depth, with each candidate scored by the fitted model's predicted race-day performance. |
-| **Race prediction** | A Monte Carlo simulation of 6,000 races at any of nine distances, picked from a dropdown. Running races stretch threshold pace to the distance with Riegel's power law, then apply a durability factor (long runs and fitness, relative to the race distance) and heat. Triathlons add the swim from Critical Swim Speed and the bike from a physics energy balance (aero drag, rolling resistance, climbing, drivetrain loss), with pacing and transition times set per distance. Output is the P10/P50/P90 range for each leg. |
+| **Race calendar** | Any number of races, each with an A/B/C priority, added from a list of well-known races or entered by hand (type, distance, date, course). The next A race is the target that the taper and countdown work toward. |
+| **Race prediction** | A Monte Carlo simulation of 6,000 races for any saved race or standard distance, with any running distance supported. Each race is forecast with the fitness and form projected for its own date. Running races stretch threshold pace to the distance with Riegel's power law, then apply a durability factor (long runs and fitness, relative to the race distance) and heat. Triathlons add the swim from Critical Swim Speed and the bike from a physics energy balance (aero drag, rolling resistance, climbing, drivetrain loss), with pacing and transition times set per distance. Output is the P10/P50/P90 range for each leg. |
 | **Performance** | Mean-maximal power curve with a Critical Power / W′ fit, Efficiency Factor trends and aerobic decoupling. |
 | **Routes** | A layered map of every outdoor ride and run, decoded from Strava polylines. |
 | **Recovery** | HRV against a rolling 60-day baseline, resting HR, sleep, Body Battery, and the correlation between yesterday's load and this morning's HRV. |
@@ -93,7 +94,7 @@ To use your own Strava data, create an API app at <https://www.strava.com/settin
 ## Tests and CI
 
 ```bash
-make test    # pytest (80 tests, ~85% coverage) + vitest
+make test    # pytest (93 tests, ~85% coverage) + vitest
 make lint    # ruff, tsc, oxlint, prettier
 ```
 
