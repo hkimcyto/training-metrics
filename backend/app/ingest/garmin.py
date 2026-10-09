@@ -91,6 +91,20 @@ def _body_battery(rec: dict[str, Any]) -> dict[str, float]:
     return out
 
 
+def _health_status(rec: dict[str, Any]) -> dict[str, float]:
+    """healthStatusData files hold overnight HRV as a list of typed metrics."""
+    out: dict[str, float] = {}
+    metrics = rec.get("metrics")
+    if isinstance(metrics, list):
+        for m in metrics:
+            if not isinstance(m, dict) or m.get("type") != "HRV":
+                continue
+            v = m.get("value")
+            if isinstance(v, int | float) and v > 0:
+                out["hrv_ms"] = float(v)
+    return out
+
+
 def parse_records(records: Iterable[Any]) -> dict[date, dict[str, float]]:
     days: dict[date, dict[str, float]] = defaultdict(dict)
     for rec in _walk(list(records)):
@@ -114,7 +128,7 @@ def parse_records(records: Iterable[Any]) -> dict[date, dict[str, float]]:
         parts = [rec.get(k) for k in SLEEP_PARTS]
         if "sleep_s" not in row and any(isinstance(p, int | float) for p in parts):
             row["sleep_s"] = float(sum(p for p in parts if isinstance(p, int | float)))
-        for k, v in _body_battery(rec).items():
+        for k, v in (_body_battery(rec) | _health_status(rec)).items():
             row.setdefault(k, v)
     return {d: r for d, r in days.items() if r}
 

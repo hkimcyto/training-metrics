@@ -40,6 +40,22 @@ def test_parses_nested_and_flat_shapes():
     assert d["stress_avg"] == 24
 
 
+def test_parses_hrv_from_health_status_metrics():
+    health = [
+        {
+            "calendarDate": "2026-10-07",
+            "metrics": [
+                {"type": "HRV", "value": 70.0, "status": "IN_RANGE"},
+                {"type": "HR", "value": 52.0, "status": "IN_RANGE"},
+                {"type": "SKIN_TEMP_C", "status": "UNKNOWN"},
+            ],
+        }
+    ]
+    d = parse_records([health])[date(2026, 10, 7)]
+    assert d["hrv_ms"] == 70
+    assert "rest_hr" not in d  # overnight HR is not resting HR
+
+
 def test_reads_export_zip_and_skips_activity_files():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:

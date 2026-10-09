@@ -45,7 +45,6 @@ export default function Race({ units }: { units: Units }) {
                     .map((t) => (
                       <option key={t.key} value={t.key}>
                         {t.label}
-                        {t.key === me.data?.settings.race_type ? ' (your race)' : ''}
                       </option>
                     ))}
                 </optgroup>
