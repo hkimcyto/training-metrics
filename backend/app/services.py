@@ -341,14 +341,9 @@ def efficiency_trend(db: Session, athlete: Athlete, days: int = 120) -> dict[str
     ]
     out: dict[str, Any] = {"points": [], "trend": {}}
     for a in acts:
+        # the whole workout rides along so hovering a point can show it
         out["points"].append(
-            {
-                "day": a.day.isoformat(),
-                "sport": a.sport,
-                "ef": a.ef,
-                "decoupling": a.decoupling_pct,
-                "name": a.name,
-            }
+            {**activity_dict(a), "decoupling": a.decoupling_pct, "polyline": a.polyline}
         )
     for sport in ("bike", "run"):
         pts = [(a.day, a.ef) for a in acts if a.sport == sport]

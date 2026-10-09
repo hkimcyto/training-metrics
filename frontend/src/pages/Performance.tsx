@@ -3,6 +3,7 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Scatter,
@@ -15,7 +16,9 @@ import {
 import { useEfficiency, usePowerCurve } from '../api'
 import { Dot, Kpi, Panel, Q, Seg, Tip } from '../components/ui'
 import type { Units } from '../lib/format'
-import { shortDate, signed } from '../lib/format'
+import { minSec, shortDate } from '../lib/format'
+import { WorkoutCard } from '../components/WorkoutCard'
+import type { EfficiencyPoint } from '../types'
 
 const dur = (s: number) => (s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${s / 3600}h`)
 const TICKS = [5, 30, 60, 300, 1200, 3600, 7200]
@@ -24,7 +27,6 @@ export default function Performance({ units }: { units: Units }) {
   const [days, setDays] = useState(90)
   const pc = usePowerCurve(days)
   const eff = useEfficiency()
-  void units
 
   return (
     <>
@@ -173,169 +175,249 @@ export default function Performance({ units }: { units: Units }) {
         </Q>
       </Panel>
 
-      <div className="grid">
-        <Panel
-          className="span-7"
-          title="Aerobic efficiency"
-          aside={
-            <div className="legend">
-              <span>
-                <Dot sport="bike" />
-                Bike (W per bpm)
-              </span>
-              <span>
-                <Dot sport="run" />
-                Run (m/min per bpm)
-              </span>
-            </div>
-          }
-          note="Efficiency Factor from steady sessions of 30 minutes or more. Rising values mean more output at the same heart rate."
-        >
-          <Q q={eff} height={300}>
-            {(e) => (
-              <>
-                <p style={{ marginTop: 0 }}>
-                  {(['bike', 'run'] as const).map((s) =>
-                    e.trend[s] ? (
-                      <span key={s} style={{ marginRight: 18 }}>
-                        <Dot sport={s} />
-                        {s === 'bike' ? 'Bike' : 'Run'}{' '}
-                        <b className={e.trend[s]!.pct_per_4wk >= 0 ? 'up' : 'down'}>
-                          {signed(e.trend[s]!.pct_per_4wk, 1)}%
-                        </b>{' '}
-                        per 4 weeks
-                      </span>
-                    ) : null,
-                  )}
-                </p>
-                <div className="grid" style={{ gap: 8 }}>
-                  {(['bike', 'run'] as const).map((s) => (
-                    <div key={s} className="span-6">
-                      <ResponsiveContainer width="100%" height={240}>
-                        <ScatterChart margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
-                          <CartesianGrid vertical={false} />
-                          <XAxis
-                            dataKey="t"
-                            type="number"
-                            domain={['dataMin', 'dataMax']}
-                            tickFormatter={(t) => shortDate(new Date(t).toISOString().slice(0, 10))}
-                            tickLine={false}
-                            axisLine={false}
-                            minTickGap={30}
-                          />
-                          <YAxis
-                            dataKey="ef"
-                            domain={['auto', 'auto']}
-                            tickFormatter={(v) => v.toFixed(2)}
-                            tickLine={false}
-                            axisLine={false}
-                            width={40}
-                          />
-                          <ZAxis range={[28, 28]} />
-                          <Tooltip
-                            content={({ payload }) => {
-                              const r = payload?.[0]?.payload as
-                                { day: string; ef: number; name: string; decoupling: number | null } | undefined
-                              if (!r) return null
-                              return (
-                                <Tip
-                                  title={`${shortDate(r.day)} · ${r.name}`}
-                                  rows={[
-                                    ['Efficiency', r.ef.toFixed(3)],
-                                    ['Decoupling', r.decoupling != null ? `${r.decoupling.toFixed(1)}%` : '—'],
-                                  ]}
-                                />
-                              )
-                            }}
-                          />
-                          <Scatter
-                            data={e.points
-                              .filter((x) => x.sport === s)
-                              .map((x) => ({ ...x, t: Date.parse(x.day + 'T12:00:00') }))}
-                            fill={`var(--${s})`}
-                            fillOpacity={0.75}
-                            isAnimationActive={false}
-                          />
-                        </ScatterChart>
-                      </ResponsiveContainer>
-                    </div>
-                  ))}
+      <Panel
+        title="Aerobic efficiency"
+        aside={<span className="label">Steady sessions of 30 min or more</span>}
+        note="Your output at the same heart rate, from steady workouts. If the same heartbeat buys you a faster pace or more power, your aerobic engine is improving. The line is the trend; hover any dot for the workout."
+      >
+        <Q q={eff} height={300}>
+          {(e) => (
+            <div className="grid" style={{ gap: 16 }}>
+              {(['run', 'bike'] as const).map((s) => (
+                <div key={s} className="span-6">
+                  <SportEfficiency sport={s} points={e.points.filter((x) => x.sport === s)} units={units} />
                 </div>
-              </>
-            )}
-          </Q>
-        </Panel>
+              ))}
+            </div>
+          )}
+        </Q>
+      </Panel>
 
-        <Panel
-          className="span-5"
-          title="Aerobic decoupling"
-          note="How much heart rate drifted relative to output between the first and second half of long sessions. Under 5% suggests aerobic endurance is in place for that duration."
-        >
-          <Q q={eff} height={300}>
-            {(e) => {
-              const pts = e.points
-                .filter((x) => x.decoupling != null)
-                .map((x) => ({ ...x, t: Date.parse(x.day + 'T12:00:00') }))
-              const under = pts.filter((x) => x.decoupling! < 5).length
-              return (
-                <>
-                  <p style={{ marginTop: 0 }}>
-                    <b>{under}</b> of {pts.length} long sessions under 5%
-                  </p>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <ScatterChart margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
-                      <CartesianGrid vertical={false} />
-                      <XAxis
-                        dataKey="t"
-                        type="number"
-                        domain={['dataMin', 'dataMax']}
-                        tickFormatter={(t) => shortDate(new Date(t).toISOString().slice(0, 10))}
-                        tickLine={false}
-                        axisLine={false}
-                        minTickGap={30}
-                      />
-                      <YAxis
-                        dataKey="decoupling"
-                        tickFormatter={(v) => `${v}%`}
-                        tickLine={false}
-                        axisLine={false}
-                        width={40}
-                      />
-                      <ZAxis range={[30, 30]} />
-                      <ReferenceLine
-                        y={5}
-                        stroke="var(--warn)"
-                        strokeDasharray="4 3"
-                        label={{ value: '5%', fill: 'var(--warn)', fontSize: 10, position: 'insideTopRight' }}
-                      />
-                      <Tooltip
-                        content={({ payload }) => {
-                          const r = payload?.[0]?.payload as
-                            { day: string; decoupling: number; name: string } | undefined
-                          return r ? (
-                            <Tip
-                              title={`${shortDate(r.day)} · ${r.name}`}
-                              rows={[['Decoupling', `${r.decoupling.toFixed(1)}%`]]}
-                            />
-                          ) : null
-                        }}
-                      />
-                      {(['bike', 'run'] as const).map((s) => (
-                        <Scatter
-                          key={s}
-                          data={pts.filter((x) => x.sport === s)}
-                          fill={`var(--${s})`}
-                          isAnimationActive={false}
-                        />
-                      ))}
-                    </ScatterChart>
-                  </ResponsiveContainer>
-                </>
-              )
+      <Panel
+        title="Heart-rate drift (aerobic decoupling)"
+        aside={
+          <div className="legend">
+            <span>
+              <Dot sport="run" />
+              Run
+            </span>
+            <span>
+              <Dot sport="bike" />
+              Bike
+            </span>
+          </div>
+        }
+        note="On a long steady session, how much more heart rate the second half cost for the same pace or power. Under 5% means your endurance comfortably covers that duration; over 10% means you were fading. Hover any dot for the workout."
+      >
+        <Q q={eff} height={300}>
+          {(e) => <Decoupling points={e.points} units={units} />}
+        </Q>
+      </Panel>
+    </>
+  )
+}
+
+const MI = 1609.344
+const dayT = (day: string) => Date.parse(day + 'T12:00:00')
+const tickDate = (t: number) => shortDate(new Date(t).toISOString().slice(0, 10))
+const month = (t: number) => new Date(t).toLocaleDateString('en-US', { month: 'long' })
+
+function median(xs: number[]) {
+  const s = [...xs].sort((a, b) => a - b)
+  return s.length ? s[Math.floor(s.length / 2)] : 0
+}
+
+/** Least-squares line through the points, returned as its two end points. */
+function trendLine(pts: { t: number; y: number }[]) {
+  const n = pts.length
+  const mt = pts.reduce((s, p) => s + p.t, 0) / n
+  const my = pts.reduce((s, p) => s + p.y, 0) / n
+  const sxx = pts.reduce((s, p) => s + (p.t - mt) ** 2, 0)
+  const slope = sxx ? pts.reduce((s, p) => s + (p.t - mt) * (p.y - my), 0) / sxx : 0
+  const ts = pts.map((p) => p.t)
+  return [Math.min(...ts), Math.max(...ts)].map((t) => ({ t, y: my + slope * (t - mt) }))
+}
+
+function SportEfficiency({ sport, points, units }: { sport: 'run' | 'bike'; points: EfficiencyPoint[]; units: Units }) {
+  const run = sport === 'run'
+  const per = units === 'imperial' ? MI : 1000
+  const perLabel = units === 'imperial' ? '/mi' : '/km'
+  // compare every workout at one heart rate: the athlete's typical steady HR
+  const ref = Math.round(median(points.map((p) => p.avg_hr ?? 0).filter(Boolean)) / 5) * 5 || (run ? 150 : 135)
+  const toY = (ef: number) => (run ? per / ((ef * ref) / 60) : ef * ref)
+  const fmt = (y: number) => (run ? `${minSec(y)} ${perLabel}` : `${Math.round(y)} W`)
+  const data = points.map((p) => ({ ...p, t: dayT(p.day), y: toY(p.ef) }))
+  const title = (
+    <div className="label" style={{ marginBottom: 6 }}>
+      <Dot sport={sport} />
+      {run ? `Run pace at ${ref} bpm` : `Bike power at ${ref} bpm`}
+    </div>
+  )
+  if (data.length < 3)
+    return (
+      <>
+        {title}
+        <p className="note">Not enough steady {run ? 'runs' : 'rides'} with heart rate yet.</p>
+      </>
+    )
+
+  const [from, to] = trendLine(data)
+  // whole-number watt ticks; pace ticks are left to the chart
+  const ys = data.map((d) => d.y)
+  const lo = Math.floor(Math.min(...ys) / 10) * 10
+  const hi = Math.ceil(Math.max(...ys) / 10) * 10
+  const step = hi - lo > 60 ? 20 : 10
+  const bikeTicks = run ? undefined : Array.from({ length: Math.ceil((hi - lo) / step) + 1 }, (_, i) => lo + i * step)
+  const diff = Math.abs(to.y - from.y)
+  const better = run ? to.y < from.y : to.y > from.y
+  const flat = diff < 2
+  const headline = flat ? (
+    <>about the same as in {month(from.t)}</>
+  ) : (
+    <>
+      <b className={better ? 'up' : 'down'}>
+        {run
+          ? `${minSec(diff)} ${perLabel} ${better ? 'faster' : 'slower'}`
+          : `${Math.round(diff)} W ${better ? 'more' : 'less'}`}
+      </b>{' '}
+      than in {month(from.t)}
+    </>
+  )
+
+  return (
+    <>
+      {title}
+      <p style={{ margin: '0 0 8px' }}>
+        At {ref} bpm you now {run ? 'run' : 'hold'} <b>{fmt(to.y)}</b>, {headline}.
+      </p>
+      <ResponsiveContainer width="100%" height={240}>
+        <ScatterChart margin={{ top: 6, right: 18, left: 0, bottom: 0 }}>
+          <CartesianGrid vertical={false} />
+          <XAxis
+            dataKey="t"
+            type="number"
+            domain={['dataMin', 'dataMax']}
+            tickFormatter={tickDate}
+            tickLine={false}
+            axisLine={false}
+            minTickGap={30}
+          />
+          <YAxis
+            dataKey="y"
+            type="number"
+            domain={bikeTicks ? [bikeTicks[0], bikeTicks[bikeTicks.length - 1]] : ['auto', 'auto']}
+            ticks={bikeTicks}
+            reversed={run}
+            tickFormatter={(v: number) => (run ? minSec(v) : `${Math.round(v)}`)}
+            tickLine={false}
+            axisLine={false}
+            width={44}
+            label={{
+              value: run ? `${perLabel.slice(1)} pace ↑ faster` : 'watts ↑ more',
+              angle: -90,
+              position: 'insideLeft',
+              fill: 'var(--muted)',
+              fontSize: 10,
+              dy: 40,
             }}
-          </Q>
-        </Panel>
-      </div>
+          />
+          <ZAxis range={[34, 34]} />
+          <Tooltip
+            cursor={{ strokeDasharray: '3 3' }}
+            content={({ payload }) => {
+              const r = payload?.[0]?.payload as (EfficiencyPoint & { y: number }) | undefined
+              if (!r || !('id' in r)) return null
+              return <WorkoutCard a={r} units={units} efficiency={`${fmt(r.y)} at ${ref} bpm`} />
+            }}
+          />
+          <Scatter data={data} fill={`var(--${sport})`} fillOpacity={0.7} isAnimationActive={false} />
+          <Scatter
+            data={[from, to]}
+            line={{ stroke: `var(--${sport})`, strokeWidth: 2 }}
+            shape={() => <g />}
+            legendType="none"
+            isAnimationActive={false}
+          />
+        </ScatterChart>
+      </ResponsiveContainer>
+    </>
+  )
+}
+
+function Decoupling({ points, units }: { points: EfficiencyPoint[]; units: Units }) {
+  const pts = points.filter((x) => x.decoupling != null).map((x) => ({ ...x, t: dayT(x.day) }))
+  if (!pts.length) return <p className="note">No long steady sessions with heart rate yet.</p>
+  const vals = pts.map((x) => x.decoupling!)
+  const lo = Math.min(-5, Math.floor(Math.min(...vals) / 5) * 5)
+  const hi = Math.max(15, Math.ceil(Math.max(...vals) / 5) * 5)
+  const ticks = Array.from({ length: (hi - lo) / 5 + 1 }, (_, i) => lo + i * 5)
+  const steady = vals.filter((v) => v < 5).length
+  const zone = (y1: number, y2: number, fill: string, label: string) => (
+    <ReferenceArea
+      y1={y1}
+      y2={y2}
+      fill={fill}
+      fillOpacity={0.09}
+      stroke="none"
+      ifOverflow="hidden"
+      label={{ value: label, position: 'insideTopLeft', fill, fontSize: 10 }}
+    />
+  )
+  return (
+    <>
+      <p style={{ marginTop: 0 }}>
+        <b>{steady}</b> of {pts.length} long sessions held steady (drift under 5%)
+        {pts.length - steady > 0 && (
+          <>
+            ; <b>{vals.filter((v) => v >= 10).length}</b> faded past 10%
+          </>
+        )}
+        .
+      </p>
+      <ResponsiveContainer width="100%" height={260}>
+        <ScatterChart margin={{ top: 6, right: 18, left: 0, bottom: 0 }}>
+          <CartesianGrid vertical={false} />
+          {zone(lo, 5, 'var(--good)', 'steady')}
+          {zone(5, 10, 'var(--warn)', 'some drift')}
+          {zone(10, hi, 'var(--bad)', 'fading')}
+          <XAxis
+            dataKey="t"
+            type="number"
+            domain={['dataMin', 'dataMax']}
+            tickFormatter={tickDate}
+            tickLine={false}
+            axisLine={false}
+            minTickGap={30}
+          />
+          <YAxis
+            dataKey="decoupling"
+            type="number"
+            domain={[lo, hi]}
+            ticks={ticks}
+            tickFormatter={(v: number) => `${v}%`}
+            tickLine={false}
+            axisLine={false}
+            width={40}
+          />
+          <ZAxis range={[34, 34]} />
+          <Tooltip
+            cursor={{ strokeDasharray: '3 3' }}
+            content={({ payload }) => {
+              const r = payload?.[0]?.payload as EfficiencyPoint | undefined
+              return r ? <WorkoutCard a={r} units={units} /> : null
+            }}
+          />
+          {(['run', 'bike'] as const).map((s) => (
+            <Scatter
+              key={s}
+              data={pts.filter((x) => x.sport === s)}
+              fill={`var(--${s})`}
+              fillOpacity={0.8}
+              isAnimationActive={false}
+            />
+          ))}
+        </ScatterChart>
+      </ResponsiveContainer>
     </>
   )
 }

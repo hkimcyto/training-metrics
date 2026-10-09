@@ -59,6 +59,13 @@ def test_training_status_is_estimated_without_garmin_metrics(client):
     assert len(body["timeline"]) == 85
 
 
+def test_efficiency_points_carry_workout_details(client):
+    pts = client.get("/api/efficiency").json()["points"]
+    assert pts
+    for k in ("id", "name", "distance_m", "moving_s", "avg_hr", "ef", "decoupling", "polyline"):
+        assert k in pts[0]
+
+
 def test_activity_404_for_other_ids(client):
     assert client.get("/api/activities/999999").status_code == 404
 

@@ -169,8 +169,15 @@ export interface PowerCurve {
   weight_kg: number
 }
 
+export type EfficiencyPoint = Activity & {
+  sport: 'bike' | 'run'
+  ef: number
+  decoupling: number | null
+  polyline: string | null
+}
+
 export interface EfficiencyTrend {
-  points: { day: string; sport: 'bike' | 'run'; ef: number; decoupling: number | null; name: string }[]
+  points: EfficiencyPoint[]
   trend: Partial<Record<'bike' | 'run', { pct_per_4wk: number; start: number; end: number }>>
 }
 
