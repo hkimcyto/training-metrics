@@ -171,8 +171,71 @@ def parse_records(records: Iterable[Any]) -> dict[date, dict[str, Any]]:
     return {d: r for d, r in days.items() if r}
 
 
-def parse_export(zip_bytes: bytes) -> dict[date, dict[str, Any]]:
-    """Read every wellness-looking JSON file in a Garmin export ZIP."""
+RACE_KEYS = {
+    "raceTime5K": "5k",
+    "raceTime10K": "10k",
+    "raceTimeHalf": "half_marathon",
+    "raceTimeMarathon": "marathon",
+}
+# profile files hold Garmin's measured thresholds rather than daily values;
+# the "latest" biometrics file is read first so it wins over zone settings
+PROFILE_FILES = ("biometrics_latest", "heartratezones", "powerzones", "runracepredictions")
+
+
+def _lt_speed(v: Any) -> float | None:
+    """Garmin stores lactate threshold speed in tens of m/s (0.40 = 4.0 m/s)."""
+    if not isinstance(v, int | float):
+        return None
+    speed = v * 10 if 0.2 < v < 0.7 else v
+    return float(speed) if 2 < speed < 7 else None
+
+
+def parse_profile(files: Iterable[tuple[str, Any]]) -> dict[str, Any]:
+    """Garmin's measured thresholds and latest race predictions.
+
+    `files` pairs each file name with its parsed JSON."""
+    out: dict[str, Any] = {}
+    ordered = sorted(files, key=lambda f: next(
+        (i for i, k in enumerate(PROFILE_FILES) if k in f[0].lower()), len(PROFILE_FILES)
+    ))  # fmt: skip
+    latest_prediction: tuple[str, dict[str, Any]] | None = None
+    for name, data in ordered:
+        low = name.lower()
+        for rec in _walk(data):
+            if "runracepredictions" in low:
+                stamp = str(rec.get("timestamp") or rec.get("calendarDate") or "")
+                if any(k in rec for k in RACE_KEYS) and (
+                    latest_prediction is None or stamp >= latest_prediction[0]
+                ):
+                    latest_prediction = (stamp, rec)
+                continue
+            if "powerzones" in low and rec.get("sport") not in (None, "CYCLING"):
+                continue
+            if (lt := _lt_speed(rec.get("lactateThresholdSpeed"))) is not None:
+                out.setdefault("run_threshold_speed", lt)
+            for key, field in (
+                ("lactateThresholdHeartRate", "lthr"),
+                ("lactateThresholdHeartRateUsed", "lthr"),
+                ("functionalThresholdPower", "ftp_watts"),
+                ("maxHeartRateUsed", "max_hr"),
+            ):
+                v = rec.get(key)
+                if isinstance(v, int | float) and v > 0:
+                    out.setdefault(field, float(v))
+    if latest_prediction:
+        stamp, rec = latest_prediction
+        out["race_predictions"] = {
+            race: float(rec[k])
+            for k, race in RACE_KEYS.items()
+            if isinstance(rec.get(k), int | float)
+        }
+        out["race_predictions_as_of"] = stamp[:10]
+    return out
+
+
+def read_export(zip_bytes: bytes) -> tuple[dict[date, dict[str, Any]], dict[str, Any]]:
+    """Daily wellness and training metrics, plus Garmin's measured thresholds,
+    from every relevant JSON file in a Garmin export ZIP."""
     wanted = (
         "sleepdata",
         "udsfile",
@@ -185,15 +248,36 @@ def parse_export(zip_bytes: bytes) -> dict[date, dict[str, Any]]:
         "maxmetdata",
     )
     records: list[Any] = []
+    profile_files: list[tuple[str, Any]] = []
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         for name in zf.namelist():
             low = name.lower()
-            if low.endswith(".json") and any(w in low for w in wanted):
-                try:
-                    records.append(json.loads(zf.read(name)))
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    log.warning("skipping unreadable %s", name)
-    return parse_records(records)
+            if not low.endswith(".json"):
+                continue
+            is_profile = any(k in low for k in PROFILE_FILES)
+            if not is_profile and not any(w in low for w in wanted):
+                continue
+            try:
+                data = json.loads(zf.read(name))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                log.warning("skipping unreadable %s", name)
+                continue
+            if is_profile:
+                profile_files.append((name, data))
+            else:
+                records.append(data)
+    return parse_records(records), parse_profile(profile_files)
+
+
+def parse_export(zip_bytes: bytes) -> dict[date, dict[str, Any]]:
+    """Read every wellness-looking JSON file in a Garmin export ZIP."""
+    return read_export(zip_bytes)[0]
+
+
+def save_profile(db: Session, athlete: Athlete, profile: dict[str, Any]) -> None:
+    """Merge newly read thresholds over what an earlier export provided."""
+    athlete.garmin_profile = {**(athlete.garmin_profile or {}), **profile}
+    db.commit()
 
 
 def save(

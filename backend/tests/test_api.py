@@ -47,6 +47,12 @@ def test_prediction_for_any_race_type(client):
     assert client.get("/api/race/prediction", params={"race": "ultra"}).status_code == 422
 
 
+def test_forecast_without_garmin_has_no_garmin_prediction(client):
+    body = client.get("/api/race/prediction", params={"race": "marathon"}).json()
+    assert body["garmin_prediction"] is None
+    assert body["inputs"]["sources"]["run"] != "Garmin lactate threshold"
+
+
 def test_me_lists_race_types(client):
     keys = [r["key"] for r in client.get("/api/me").json()["race_types"]]
     assert "marathon" in keys and "olympic_tri" in keys

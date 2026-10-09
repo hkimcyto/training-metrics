@@ -26,6 +26,14 @@ def riegel_speed_for_duration(distance_m: float, time_s: float, target_s: float 
     return d2 / target_s
 
 
+def run_threshold_from_vo2max(vo2max: float) -> float:
+    """Threshold speed (m/s) implied by a VO2 max, from Daniels & Gilbert's
+    oxygen cost of running, VO2 = -4.60 + 0.182258 v + 0.000104 v^2 with v in
+    m/min. Threshold pace sits at about 88% of VO2 max."""
+    a, b, c = 0.000104, 0.182258, -4.60 - 0.88 * vo2max
+    return (-b + float(np.sqrt(b * b - 4 * a * c))) / (2 * a) / 60
+
+
 def run_threshold(best_efforts: dict[float, float]) -> Estimate | None:
     """best_efforts maps distance (m) to best time (s). Uses the longest
     effort of at least 5 km, since short efforts overstate threshold."""

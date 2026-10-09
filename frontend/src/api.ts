@@ -100,14 +100,19 @@ export function useGarminImport() {
     mutationFn: (file: File) => {
       const fd = new FormData()
       fd.append('file', file)
-      return request<{ days_imported: number; first: string; last: string }>('/wellness/garmin-import', {
+      return request<{
+        days_imported: number
+        first: string | null
+        last: string | null
+        thresholds_imported: string[]
+      }>('/wellness/garmin-import', {
         method: 'POST',
         body: fd,
       })
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['wellness'] })
-      qc.invalidateQueries({ queryKey: ['training-status'] })
+      // new thresholds re-score every workout, so refresh everything
+      qc.invalidateQueries()
     },
   })
 }

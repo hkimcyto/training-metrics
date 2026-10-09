@@ -52,7 +52,9 @@ function Importer() {
       {imp.isPending && <p className="note">Reading the export…</p>}
       {imp.isSuccess && (
         <p className="note up">
-          Imported {imp.data.days_imported} days ({shortDate(imp.data.first)} – {shortDate(imp.data.last)}).
+          Imported {imp.data.days_imported} days
+          {imp.data.first && imp.data.last && ` (${shortDate(imp.data.first)} – ${shortDate(imp.data.last)})`}
+          {imp.data.thresholds_imported.length > 0 && ' and your Garmin thresholds'}.
         </p>
       )}
       {imp.isError && <p className="note error">{imp.error.message}</p>}
@@ -70,6 +72,7 @@ function ReimportButton() {
       {imp.isSuccess && (
         <span className="note up" style={{ margin: 0 }}>
           Imported {imp.data.days_imported} days
+          {imp.data.thresholds_imported.length > 0 && ' + thresholds'}
         </span>
       )}
       {imp.isError && (

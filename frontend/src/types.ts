@@ -129,6 +129,7 @@ export type LegKey = 'swim' | 't1' | 'bike' | 't2' | 'run'
 export interface RacePrediction {
   race_type: string
   is_target: boolean
+  garmin_prediction: { time_s: number; as_of: string | null } | null
   course: {
     name: string
     kind: 'run' | 'triathlon'

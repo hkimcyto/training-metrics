@@ -44,6 +44,9 @@ class Athlete(Base):
     max_hr: Mapped[float | None] = mapped_column(Float)
     rest_hr: Mapped[float | None] = mapped_column(Float)
 
+    # thresholds and race predictions read from a Garmin export
+    garmin_profile: Mapped[dict | None] = mapped_column(JSON)
+
     race_name: Mapped[str | None] = mapped_column(String(120))
     race_date: Mapped[date | None] = mapped_column(Date)
     race_type: Mapped[str] = mapped_column(String(16), default="ironman", server_default="ironman")

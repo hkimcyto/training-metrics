@@ -367,17 +367,26 @@ async def garmin_import(
         raise HTTPException(413, "Upload the wellness folders rather than the full export")
     try:
         if (file.filename or "").lower().endswith(".zip"):
-            days = garmin.parse_export(data)
+            days, profile = garmin.read_export(data)
         else:
             import json
 
-            days = garmin.parse_records([json.loads(data)])
+            days, profile = garmin.parse_records([json.loads(data)]), {}
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, f"Couldn't read that file: {e}") from e
-    if not days:
+    if not days and not profile:
         raise HTTPException(422, "No sleep, HRV or resting-HR data found in that file")
-    n = garmin.save(db, athlete, days)
-    return {"days_imported": n, "first": min(days).isoformat(), "last": max(days).isoformat()}
+    n = garmin.save(db, athlete, days) if days else 0
+    if profile:
+        garmin.save_profile(db, athlete, profile)
+    rescore_all(db, athlete)  # Garmin thresholds and resting HR change every score
+    db.commit()
+    return {
+        "days_imported": n,
+        "first": min(days).isoformat() if days else None,
+        "last": max(days).isoformat() if days else None,
+        "thresholds_imported": sorted(k for k in profile if k != "race_predictions_as_of"),
+    }
 
 
 @router.post("/wellness/garmin-sync")

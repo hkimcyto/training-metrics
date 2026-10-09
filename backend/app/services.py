@@ -279,9 +279,13 @@ def race_prediction(db: Session, athlete: Athlete, race_type: str | None = None)
     def leg(s: Any) -> dict[str, float]:
         return {"p10": s.p10, "p50": s.p50, "p90": s.p90}
 
+    garmin = athlete.garmin_profile or {}
+    garmin_time = (garmin.get("race_predictions") or {}).get(race_type)
     return {
         "race_type": race_type,
         "is_target": race_type == target,
+        "garmin_prediction": garmin_time
+        and {"time_s": garmin_time, "as_of": garmin.get("race_predictions_as_of")},
         "course": {
             "name": course.name,
             "kind": race.kind,

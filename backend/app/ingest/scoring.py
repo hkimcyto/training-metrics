@@ -23,7 +23,7 @@ from app.analytics.load import (
     score,
 )
 from app.analytics.power_curve import best_efforts, merge_curves
-from app.db.models import Activity, Athlete
+from app.db.models import Activity, Athlete, WellnessDay
 
 SPORT_MAP = {
     "Swim": Sport.SWIM,
@@ -47,26 +47,43 @@ def sport_of(sport_type: str) -> Sport:
 
 
 def resolve_thresholds(db: Session, athlete: Athlete) -> tuple[Thresholds, dict[str, str]]:
-    """Use what the athlete entered; otherwise estimate from the last 90 days;
-    otherwise fall back to population defaults. Returns the sources too."""
+    """Use what the athlete entered; then what Garmin has measured; otherwise
+    estimate from the last 90 days; otherwise fall back to population
+    defaults. Returns the sources too."""
     d = Thresholds()
     since = date.today() - timedelta(days=90)
     acts = db.scalars(
         select(Activity).where(Activity.athlete_id == athlete.id, Activity.day >= since)
     ).all()
     sources: dict[str, str] = {}
+    garmin = athlete.garmin_profile or {}
 
     ftp = athlete.ftp_watts
     if ftp:
         sources["ftp"] = "set by athlete"
+    elif garmin.get("ftp_watts"):
+        ftp, sources["ftp"] = garmin["ftp_watts"], "Garmin FTP"
     else:
         curve = merge_curves(a.power_curve for a in acts if a.power_curve)
         e = est.bike_ftp({int(k): v for k, v in curve.items()})
         ftp, sources["ftp"] = (e.value, e.source) if e else (d.ftp_watts, "default")
 
     run = athlete.run_threshold_speed
+    vo2 = db.scalar(
+        select(WellnessDay.vo2max)
+        .where(
+            WellnessDay.athlete_id == athlete.id,
+            WellnessDay.vo2max.is_not(None),
+            WellnessDay.day >= date.today() - timedelta(days=60),
+        )
+        .order_by(WellnessDay.day.desc())
+    )
     if run:
         sources["run"] = "set by athlete"
+    elif garmin.get("run_threshold_speed"):
+        run, sources["run"] = garmin["run_threshold_speed"], "Garmin lactate threshold"
+    elif vo2:
+        run, sources["run"] = est.run_threshold_from_vo2max(vo2), f"Garmin VO2 max {vo2:.0f}"
     else:
         best: dict[float, float] = {}
         for a in acts:
@@ -85,14 +102,21 @@ def resolve_thresholds(db: Session, athlete: Athlete) -> tuple[Thresholds, dict[
         e = est.swim_css((a.distance_m, a.moving_s) for a in acts if a.sport == "swim")
         css, sources["css"] = (e.value, e.source) if e else (d.css_speed, "default")
 
-    max_hr = athlete.max_hr or d.max_hr
+    max_hr = athlete.max_hr or garmin.get("max_hr") or d.max_hr
+    rest = db.scalars(
+        select(WellnessDay.rest_hr).where(
+            WellnessDay.athlete_id == athlete.id,
+            WellnessDay.rest_hr.is_not(None),
+            WellnessDay.day >= date.today() - timedelta(days=30),
+        )
+    ).all()
     base = Thresholds(
         ftp_watts=ftp,
         run_threshold_speed=run,
         css_speed=css,
-        lthr=athlete.lthr or round(max_hr * 0.87),
+        lthr=athlete.lthr or garmin.get("lthr") or round(max_hr * 0.87),
         max_hr=max_hr,
-        rest_hr=athlete.rest_hr or d.rest_hr,
+        rest_hr=athlete.rest_hr or (float(np.median(rest)) if rest else d.rest_hr),
     )
     # calibrate Relative Effort against heart-rate TSS on workouts that have both
     ratios = [

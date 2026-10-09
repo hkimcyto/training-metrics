@@ -3,7 +3,7 @@ import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis
 import { useMe, useRace } from '../api'
 import { Panel, Q, Tip } from '../components/ui'
 import type { Units } from '../lib/format'
-import { distance, hms, minSec, pace, raceTime, signed } from '../lib/format'
+import { distance, hms, minSec, pace, raceTime, shortDate, signed } from '../lib/format'
 import type { LegKey, RacePrediction, RaceType } from '../types'
 
 const LEGS: readonly (readonly [LegKey, string, string])[] = [
@@ -67,6 +67,12 @@ function Forecast({ r, units }: { r: RacePrediction; units: Units }) {
   const share = legs.reduce((s, [k]) => s + r.legs[k]!.p50, 0)
   const total = r.legs.total
   const runLeg = r.legs.run!
+  const garmin = r.garmin_prediction
+  // the histogram axis is categorical, so mark Garmin's time by its nearest bar
+  const garminBin =
+    garmin && garmin.time_s >= r.histogram[0].s && garmin.time_s <= r.histogram[r.histogram.length - 1].s
+      ? r.histogram.reduce((a, b) => (Math.abs(b.s - garmin.time_s) < Math.abs(a.s - garmin.time_s) ? b : a)).s
+      : null
   const conditions = r.is_target
     ? null
     : `Typical course: ${tri ? `${Math.round(r.course.bike_climb_m)} m of bike climbing, wetsuit legal, ` : ''}${r.course.run_temp_c}°C. Set this as your race in Settings to use your own course.`
@@ -80,6 +86,16 @@ function Forecast({ r, units }: { r: RacePrediction; units: Units }) {
           <p className="mono" style={{ color: 'var(--muted)', margin: '6px 0 16px' }}>
             80% range {raceTime(total.p10)} – {raceTime(total.p90)}
           </p>
+          {garmin && (
+            <p style={{ margin: '-6px 0 16px' }}>
+              Garmin predicts <b>{raceTime(garmin.time_s)}</b>
+              {garmin.as_of && <span style={{ color: 'var(--muted)' }}> (as of {shortDate(garmin.as_of)})</span>},{' '}
+              {Math.abs(garmin.time_s - total.p50) < total.p50 * 0.01
+                ? 'in line with this forecast'
+                : `${raceTime(Math.abs(garmin.time_s - total.p50))} ${garmin.time_s < total.p50 ? 'faster' : 'slower'} than this forecast`}
+              .
+            </p>
+          )}
           {tri ? (
             <>
               <div
@@ -123,7 +139,7 @@ function Forecast({ r, units }: { r: RacePrediction; units: Units }) {
         <Panel
           className="span-7"
           title="Finish-time distribution"
-          note="Where the 6,000 simulated finishes landed. The shaded bars are the middle 80%."
+          note={`Where the 6,000 simulated finishes landed. The shaded bars are the middle 80%.${garminBin != null ? " The highlighted bar is Garmin's prediction." : ''}`}
         >
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={r.histogram} barCategoryGap={1}>
@@ -139,7 +155,16 @@ function Forecast({ r, units }: { r: RacePrediction; units: Units }) {
               />
               <Bar dataKey="count" radius={[2, 2, 0, 0]}>
                 {r.histogram.map((b) => (
-                  <Cell key={b.s} fill={b.s >= total.p10 && b.s <= total.p90 ? 'var(--accent)' : 'var(--grid)'} />
+                  <Cell
+                    key={b.s}
+                    fill={
+                      b.s === garminBin
+                        ? 'var(--ink)'
+                        : b.s >= total.p10 && b.s <= total.p90
+                          ? 'var(--accent)'
+                          : 'var(--grid)'
+                    }
+                  />
                 ))}
               </Bar>
             </BarChart>
@@ -195,7 +220,9 @@ function Forecast({ r, units }: { r: RacePrediction; units: Units }) {
                 </tr>
                 <tr>
                   <td>FTP</td>
-                  <td className="n">{Math.round(r.inputs.ftp_watts)} W</td>
+                  <td className="n">
+                    {Math.round(r.inputs.ftp_watts)} W · {r.inputs.sources.ftp}
+                  </td>
                 </tr>
                 <tr>
                   <td>Target power</td>
@@ -228,7 +255,9 @@ function Forecast({ r, units }: { r: RacePrediction; units: Units }) {
             <tbody>
               <tr>
                 <td>Threshold pace</td>
-                <td className="n">{pace(r.inputs.run_threshold_speed, 'run', units)}</td>
+                <td className="n">
+                  {pace(r.inputs.run_threshold_speed, 'run', units)} · {r.inputs.sources.run}
+                </td>
               </tr>
               <tr>
                 <td>Durability</td>
