@@ -60,6 +60,41 @@ function Importer() {
   )
 }
 
+/** Once data exists, re-importing a newer export is a header button, not a whole panel. */
+function ReimportButton() {
+  const imp = useGarminImport()
+  const me = useMe()
+  if (!me.data || me.data.is_demo) return null
+  return (
+    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+      {imp.isSuccess && (
+        <span className="note up" style={{ margin: 0 }}>
+          Imported {imp.data.days_imported} days
+        </span>
+      )}
+      {imp.isError && (
+        <span className="note error" style={{ margin: 0 }}>
+          {imp.error.message}
+        </span>
+      )}
+      <label className="btn" title="Upload a newer Garmin export (ZIP or JSON)" aria-disabled={imp.isPending}>
+        <input
+          type="file"
+          accept=".zip,.json"
+          hidden
+          disabled={imp.isPending}
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) imp.mutate(f)
+            e.target.value = ''
+          }}
+        />
+        {imp.isPending ? 'Importing…' : 'Re-import Garmin data'}
+      </label>
+    </div>
+  )
+}
+
 export default function Wellness() {
   const well = useWellness(90)
   const pmc = usePmc(90)
@@ -107,6 +142,7 @@ export default function Wellness() {
             absorbs hard days.
           </p>
         </div>
+        <ReimportButton />
       </div>
 
       <Q q={well} height={110}>
@@ -249,7 +285,7 @@ export default function Wellness() {
 
       <div className="grid">
         <Panel
-          className="span-6"
+          className="span-12"
           title="What the data says"
           note="Pearson correlation across the last 90 nights. Correlation shows a pattern, not proof of cause."
         >
@@ -277,9 +313,6 @@ export default function Wellness() {
               )
             }
           </Q>
-        </Panel>
-        <Panel className="span-6" title="Import Garmin data">
-          <Importer />
         </Panel>
       </div>
     </>
