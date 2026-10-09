@@ -1,24 +1,24 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { useCalendar, useDashboard, usePmc } from '../api'
+import { useDashboard, usePmc, useTrainingStatus } from '../api'
 import { Dot, Kpi, Panel, Q, Tip } from '../components/ui'
 import type { Units } from '../lib/format'
 import { distance, distanceValue, hms, pace, shortDate, signed } from '../lib/format'
 import { formState } from '../lib/form'
-import type { Week } from '../types'
+import { HRV_STATUS, LOAD_STATUS, statusOf } from '../lib/status'
+import type { TrainingStatus, Week } from '../types'
 
 const total = (w: Week) => w.swim_s + w.bike_s + w.run_s
 
 export default function Overview({ units }: { units: Units }) {
   const dash = useDashboard(16)
   const pmc = usePmc(60)
-  const cal = useCalendar()
 
   return (
     <>
       <div className="page-head">
         <div>
           <h1>Training overview</h1>
-          <p className="lede">Volume, load and consistency across swim, bike and run.</p>
+          <p className="lede">Volume, load and training status across swim, bike and run.</p>
         </div>
       </div>
 
@@ -158,56 +158,180 @@ export default function Overview({ units }: { units: Units }) {
           </Q>
         </Panel>
 
-        <Panel
-          title="Consistency"
-          aside={<span className="label">Daily training stress · last 12 months</span>}
-          note="Each square is a day. Darker means more training stress. Rows run Monday to Sunday."
-        >
-          <Q q={cal} height={110}>
-            {(days) => {
-              const max = Math.max(...days.map((d) => d.tss), 1)
-              const first = new Date(days[0].day + 'T12:00:00')
-              const pad = (first.getDay() + 6) % 7
-              const active = days.filter((d) => d.tss > 0).length
-              return (
-                <>
-                  <div className="cal" role="img" aria-label={`${active} training days in the last year`}>
-                    {Array.from({ length: pad }, (_, i) => (
-                      <i key={`p${i}`} style={{ visibility: 'hidden' }} />
-                    ))}
-                    {days.map((d) => (
-                      <i
-                        key={d.day}
-                        title={`${shortDate(d.day)}: ${Math.round(d.tss)} TSS`}
-                        style={
-                          d.tss > 0
-                            ? {
-                                background: `color-mix(in srgb, var(--accent) ${20 + Math.min(80, (d.tss / max) * 100)}%, var(--grid))`,
-                              }
-                            : undefined
-                        }
-                      />
-                    ))}
-                  </div>
-                  <p className="note">
-                    {active} training days in the last 365 · longest streak{' '}
-                    {
-                      days.reduce(
-                        (acc, d) => {
-                          const cur = d.tss > 0 ? acc.cur + 1 : 0
-                          return { cur, best: Math.max(acc.best, cur) }
-                        },
-                        { cur: 0, best: 0 },
-                      ).best
-                    }{' '}
-                    days
-                  </p>
-                </>
-              )
-            }}
-          </Q>
-        </Panel>
+        <TrainingStatusPanel />
       </div>
     </>
+  )
+}
+
+const TREND: Record<string, [string, string]> = {
+  INCREASING: ['▲ Fitness rising', 'var(--good)'],
+  DECREASING: ['▼ Fitness falling', 'var(--bad)'],
+  STABLE: ['● Fitness steady', 'var(--muted)'],
+}
+
+function Factor({
+  label,
+  value,
+  detail,
+  pill,
+}: {
+  label: string
+  value: string
+  detail: string
+  pill?: [string, string]
+}) {
+  return (
+    <div className="leg" style={{ borderLeftColor: pill?.[1] ?? 'var(--line)' }}>
+      <div className="label">{label}</div>
+      <div className="t">
+        {value}{' '}
+        {pill && (
+          <span className="pill" style={{ color: pill[1], verticalAlign: 'middle' }}>
+            {pill[0]}
+          </span>
+        )}
+      </div>
+      <div className="r">{detail}</div>
+    </div>
+  )
+}
+
+function factors(t: TrainingStatus) {
+  const out: { label: string; value: string; detail: string; pill?: [string, string] }[] = []
+  if (t.vo2max) {
+    const c = t.vo2max.change_28d
+    out.push({
+      label: 'VO2 max',
+      value: t.vo2max.value.toFixed(0),
+      detail: c == null ? 'ml/kg/min' : `${signed(c, 0)} over 4 weeks`,
+    })
+  } else if (t.fitness) {
+    out.push({
+      label: 'Fitness (CTL)',
+      value: t.fitness.ctl.toFixed(0),
+      detail: `${signed(t.fitness.change_28d, 0)} over 4 weeks`,
+    })
+  }
+  if (t.load) {
+    const l = t.load
+    out.push({
+      label: l.units === 'garmin' ? '7-day load' : 'Fatigue (ATL)',
+      value: Math.round(l.acute).toLocaleString(),
+      detail:
+        l.chronic != null
+          ? `vs ${Math.round(l.chronic).toLocaleString()} usual${l.ratio != null ? ` · ratio ${l.ratio.toFixed(2)}` : ''}`
+          : '',
+      pill: l.status ? LOAD_STATUS[l.status] : undefined,
+    })
+  }
+  if (t.hrv) {
+    out.push({
+      label: 'HRV · 7-night avg',
+      value: `${Math.round(t.hrv.weekly_avg)} ms`,
+      detail: `normal range ${Math.round(t.hrv.low)}–${Math.round(t.hrv.high)} ms`,
+      pill: HRV_STATUS[t.hrv.status],
+    })
+  }
+  if (t.readiness != null) {
+    out.push({ label: 'Readiness', value: String(Math.round(t.readiness)), detail: 'Garmin, this morning' })
+  }
+  return out
+}
+
+function TrainingStatusPanel() {
+  const ts = useTrainingStatus()
+  return (
+    <Panel
+      title="Training status"
+      aside={
+        ts.data && (
+          <span className="label">
+            {ts.data.source === 'garmin' ? 'From Garmin' : 'Estimated from your training'}
+            {ts.data.as_of && ` · ${shortDate(ts.data.as_of)}`}
+          </span>
+        )
+      }
+      note={
+        ts.data?.source === 'garmin'
+          ? 'Garmin weighs your VO2 max trend, recent load against your usual load, and HRV.'
+          : "Estimated the way Garmin does it, from your fitness trend, recent load against your usual load, and HRV when Garmin data is imported. Import a Garmin export on the Recovery page to use Garmin's own status."
+      }
+    >
+      <Q q={ts} height={200}>
+        {(t) => {
+          const s = statusOf(t.status)
+          const trend = t.fitness_trend ? TREND[t.fitness_trend] : undefined
+          const seen = [...new Set(t.timeline.map((d) => d.status).filter(Boolean))] as string[]
+          return (
+            <div style={{ display: 'grid', gap: 18 }}>
+              <div className="grid" style={{ alignItems: 'start' }}>
+                <div className="span-4">
+                  <div className="finish" style={{ color: s.color }}>
+                    {s.label}
+                  </div>
+                  {trend && (
+                    <div className="mono" style={{ color: trend[1], fontSize: '.8rem', margin: '4px 0 8px' }}>
+                      {trend[0]}
+                    </div>
+                  )}
+                  <p style={{ margin: 0 }}>{s.meaning}</p>
+                </div>
+                <div className="span-8 legs">
+                  {factors(t).map((f) => (
+                    <Factor key={f.label} {...f} />
+                  ))}
+                </div>
+              </div>
+
+              {t.timeline.length > 0 && (
+                <div>
+                  <div className="label" style={{ marginBottom: 6 }}>
+                    Last 12 weeks
+                  </div>
+                  <div
+                    role="img"
+                    aria-label="Training status by day over the last 12 weeks"
+                    style={{ display: 'flex', gap: 2, height: 22 }}
+                  >
+                    {t.timeline.map((d) => {
+                      const x = d.status ? statusOf(d.status) : null
+                      return (
+                        <span
+                          key={d.day}
+                          title={`${shortDate(d.day)}: ${x?.label ?? 'no data'}`}
+                          style={{ flex: 1, borderRadius: 2, background: x?.color ?? 'var(--grid)' }}
+                        />
+                      )
+                    })}
+                  </div>
+                  <div
+                    className="mono"
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: '.7rem',
+                      color: 'var(--muted)',
+                      marginTop: 4,
+                    }}
+                  >
+                    <span>{shortDate(t.timeline[0].day)}</span>
+                    <span>{shortDate(t.timeline.at(-1)!.day)}</span>
+                  </div>
+                  <div className="legend" style={{ marginTop: 8 }}>
+                    {seen.map((k) => (
+                      <span key={k}>
+                        <Dot color={statusOf(k).color} />
+                        {statusOf(k).label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        }}
+      </Q>
+    </Panel>
   )
 }

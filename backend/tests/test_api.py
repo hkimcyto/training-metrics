@@ -9,6 +9,7 @@ import pytest
         "/api/dashboard",
         "/api/pmc",
         "/api/race/prediction",
+        "/api/training-status",
         "/api/power-curve",
         "/api/efficiency",
         "/api/calendar",
@@ -49,6 +50,13 @@ def test_prediction_for_any_race_type(client):
 def test_me_lists_race_types(client):
     keys = [r["key"] for r in client.get("/api/me").json()["race_types"]]
     assert "marathon" in keys and "olympic_tri" in keys
+
+
+def test_training_status_is_estimated_without_garmin_metrics(client):
+    body = client.get("/api/training-status").json()
+    assert body["source"] == "estimated"
+    assert body["status"] in {"PEAKING", "PRODUCTIVE", "MAINTAINING", "RECOVERY", "STRAINED"}
+    assert len(body["timeline"]) == 85
 
 
 def test_activity_404_for_other_ids(client):

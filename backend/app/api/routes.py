@@ -288,6 +288,11 @@ def pmc(athlete: AthleteDep, db: DbDep, days: int = Query(150, ge=14, le=730)) -
     return services.pmc_view(db, athlete, days)
 
 
+@router.get("/training-status")
+def training_status(athlete: AthleteDep, db: DbDep) -> dict[str, Any]:
+    return services.training_status(db, athlete)
+
+
 @router.get("/race/prediction")
 def race(athlete: AthleteDep, db: DbDep, race: RaceKey | None = None) -> dict[str, Any]:
     return services.race_prediction(db, athlete, race)

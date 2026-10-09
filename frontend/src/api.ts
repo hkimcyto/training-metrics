@@ -8,6 +8,7 @@ import type {
   PowerCurve,
   RacePrediction,
   RouteRow,
+  TrainingStatus,
   Wellness,
 } from './types'
 
@@ -57,8 +58,8 @@ export const useRace = (race?: string) =>
 export const usePowerCurve = (days = 90) =>
   useQuery({ queryKey: ['power', days], queryFn: get<PowerCurve>(`/power-curve?days=${days}`) })
 export const useEfficiency = () => useQuery({ queryKey: ['eff'], queryFn: get<EfficiencyTrend>('/efficiency') })
-export const useCalendar = () =>
-  useQuery({ queryKey: ['calendar'], queryFn: get<{ day: string; tss: number }[]>('/calendar') })
+export const useTrainingStatus = () =>
+  useQuery({ queryKey: ['training-status'], queryFn: get<TrainingStatus>('/training-status') })
 export const useRoutes = (days = 180) =>
   useQuery({ queryKey: ['routes', days], queryFn: get<RouteRow[]>(`/routes?days=${days}`) })
 export const useWellness = (days = 90) =>
@@ -104,7 +105,10 @@ export function useGarminImport() {
         body: fd,
       })
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['wellness'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['wellness'] })
+      qc.invalidateQueries({ queryKey: ['training-status'] })
+    },
   })
 }
 

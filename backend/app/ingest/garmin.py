@@ -17,7 +17,7 @@ import logging
 import zipfile
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -62,6 +62,8 @@ def _first_number(d: dict[str, Any], keys: Iterable[str]) -> float | None:
 def _day(rec: dict[str, Any]) -> date | None:
     for k in DATE_KEYS:
         v = rec.get(k)
+        if isinstance(v, int) and v > 10**11:  # epoch milliseconds (acute load files)
+            return datetime.fromtimestamp(v / 1000, tz=UTC).date()
         if isinstance(v, str) and len(v) >= 10:
             try:
                 return date.fromisoformat(v[:10])
@@ -105,13 +107,49 @@ def _health_status(rec: dict[str, Any]) -> dict[str, float]:
     return out
 
 
-def parse_records(records: Iterable[Any]) -> dict[date, dict[str, float]]:
-    days: dict[date, dict[str, float]] = defaultdict(dict)
+def _training_metrics(rec: dict[str, Any]) -> tuple[str, tuple[Any, ...], dict[str, Any]] | None:
+    """Garmin's own training metrics from the DI-Connect-Metrics files.
+
+    A day can hold a dozen records (one per sync), out of order, so each
+    comes with a rank and the highest-ranked record for the day wins: the
+    latest one, the morning reading for readiness, running for VO2 max."""
+    raw = rec.get("timestamp") or rec.get("updateTimestamp")
+    stamp = (raw is not None, raw if raw is not None else 0)
+    if "trainingStatus" in rec:
+        vals = {
+            "training_status": rec["trainingStatus"],
+            "fitness_trend": rec.get("fitnessLevelTrend"),
+        }
+        return "status", stamp, vals
+    if "vo2MaxValue" in rec:
+        return "vo2", (rec.get("sport") == "RUNNING", *stamp), {"vo2max": rec["vo2MaxValue"]}
+    if "dailyTrainingLoadAcute" in rec:
+        vals = {
+            "acute_load": rec["dailyTrainingLoadAcute"],
+            "chronic_load": rec.get("dailyTrainingLoadChronic"),
+            "load_status": rec.get("acwrStatus"),
+        }
+        return "load", stamp, vals
+    if "inputContext" in rec and "score" in rec:
+        morning = rec["inputContext"] == "AFTER_WAKEUP_RESET"
+        return "readiness", (morning, *stamp), {"readiness": rec["score"]}
+    return None
+
+
+def parse_records(records: Iterable[Any]) -> dict[date, dict[str, Any]]:
+    days: dict[date, dict[str, Any]] = defaultdict(dict)
+    best: dict[tuple[date, str], tuple[Any, ...]] = {}
     for rec in _walk(list(records)):
         d = _day(rec)
         if d is None:
             continue
         row = days[d]
+        metrics = _training_metrics(rec)
+        if metrics:
+            group, rank, vals = metrics
+            if (d, group) not in best or rank >= best[(d, group)]:
+                best[(d, group)] = rank
+                row.update({k: v for k, v in vals.items() if v is not None})
         # metrics often sit in nested objects (e.g. sleepScores.overall.value)
         # that carry no date of their own, so search those too
         scopes = [rec] + [s for s in _walk(list(rec.values())) if _day(s) in (None, d)]
@@ -133,9 +171,19 @@ def parse_records(records: Iterable[Any]) -> dict[date, dict[str, float]]:
     return {d: r for d, r in days.items() if r}
 
 
-def parse_export(zip_bytes: bytes) -> dict[date, dict[str, float]]:
+def parse_export(zip_bytes: bytes) -> dict[date, dict[str, Any]]:
     """Read every wellness-looking JSON file in a Garmin export ZIP."""
-    wanted = ("sleepdata", "udsfile", "healthstatus", "hrv", "wellness")
+    wanted = (
+        "sleepdata",
+        "udsfile",
+        "healthstatus",
+        "hrv",
+        "wellness",
+        "traininghistory",
+        "trainingreadiness",
+        "acutetrainingload",
+        "maxmetdata",
+    )
     records: list[Any] = []
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         for name in zf.namelist():
@@ -149,7 +197,7 @@ def parse_export(zip_bytes: bytes) -> dict[date, dict[str, float]]:
 
 
 def save(
-    db: Session, athlete: Athlete, days: dict[date, dict[str, float]], source: str = "garmin"
+    db: Session, athlete: Athlete, days: dict[date, dict[str, Any]], source: str = "garmin"
 ) -> int:
     existing = {
         w.day: w

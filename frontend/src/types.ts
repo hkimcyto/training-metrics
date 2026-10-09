@@ -200,3 +200,22 @@ export interface Wellness {
   days: WellnessDay[]
   insights: { hrv_vs_prior_day_tss: number | null; rhr_vs_prior_day_tss: number | null; nights: number } | null
 }
+
+export interface TrainingStatus {
+  source: 'garmin' | 'estimated'
+  as_of?: string
+  status: string | null
+  fitness_trend?: 'INCREASING' | 'DECREASING' | 'STABLE' | string | null
+  fitness?: { ctl: number; change_28d: number }
+  vo2max?: { value: number; change_28d: number | null } | null
+  load?: {
+    acute: number
+    chronic: number | null
+    ratio: number | null
+    status: string | null
+    units: 'garmin' | 'tss'
+  } | null
+  hrv?: { weekly_avg: number; baseline: number; low: number; high: number; status: string } | null
+  readiness?: number | null
+  timeline: { day: string; status: string | null }[]
+}

@@ -12,7 +12,7 @@ import numpy as np
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.analytics import banister, pmc
+from app.analytics import banister, pmc, status
 from app.analytics.power_curve import fit_critical_power, merge_curves
 from app.analytics.race import RACE_TYPES, AthleteProfile, Course, simulate
 from app.db.models import Activity, Athlete, WellnessDay
@@ -394,6 +394,136 @@ def routes(db: Session, athlete: Athlete, days: int = 180) -> list[dict[str, Any
         }
         for a in rows
     ]
+
+
+# ----------------------------------------------------------- training status
+
+
+def _hrv_band(hrv: dict[date, float], d: date) -> tuple[float, float] | None:
+    """Mean and SD of the 60 nights before `d`: the athlete's normal range."""
+    window = [v for day, v in hrv.items() if d - timedelta(days=60) <= day < d]
+    if len(window) < 14:
+        return None
+    return float(np.mean(window)), float(np.std(window))
+
+
+def training_status(db: Session, athlete: Athlete, weeks: int = 12) -> dict[str, Any]:
+    """Garmin's own training status when the athlete's export includes it,
+    otherwise an estimate from fitness trend, load ratio and HRV."""
+    today = _today(db, athlete)
+    since = today - timedelta(weeks=weeks)
+    rows = db.scalars(
+        select(WellnessDay)
+        .where(
+            WellnessDay.athlete_id == athlete.id,
+            WellnessDay.day >= since - timedelta(days=70),
+            WellnessDay.day <= today,
+        )
+        .order_by(WellnessDay.day)
+    ).all()
+    by_day = {r.day: r for r in rows}
+    hrv = {r.day: r.hrv_ms for r in rows if r.hrv_ms}
+    days = [since + timedelta(days=i) for i in range((today - since).days + 1)]
+
+    hrv_view = None
+    week = [v for d, v in hrv.items() if d > today - timedelta(days=7)]
+    band = _hrv_band(hrv, today - timedelta(days=6))
+    if week and band:
+        avg, (base, sd) = float(np.mean(week)), band
+        hrv_view = {
+            "weekly_avg": avg,
+            "baseline": base,
+            "low": base - sd,
+            "high": base + sd,
+            "status": "BALANCED"
+            if abs(avg - base) <= sd
+            else "LOW"
+            if avg < base - 2 * sd
+            else "UNBALANCED",
+        }
+
+    garmin = [r for r in rows if r.training_status and r.day > today - timedelta(days=14)]
+    if garmin:
+        last = garmin[-1]
+        vo2 = [r for r in rows if r.vo2max]
+        vo2_view = None
+        if vo2:
+            before = [r.vo2max for r in vo2 if r.day <= vo2[-1].day - timedelta(days=28)]
+            vo2_view = {
+                "value": vo2[-1].vo2max,
+                "change_28d": vo2[-1].vo2max - before[-1] if before else None,
+            }
+        loads = [r for r in rows if r.acute_load is not None]
+        load = loads[-1] if loads else None
+        return {
+            "source": "garmin",
+            "as_of": last.day.isoformat(),
+            "status": last.training_status,
+            "fitness_trend": last.fitness_trend,
+            "vo2max": vo2_view,
+            "load": load
+            and {
+                "acute": load.acute_load,
+                "chronic": load.chronic_load,
+                "ratio": load.acute_load / load.chronic_load if load.chronic_load else None,
+                "status": load.load_status,
+                "units": "garmin",
+            },
+            "hrv": hrv_view,
+            "readiness": next((r.readiness for r in reversed(rows) if r.readiness), None),
+            "timeline": [
+                {"day": d.isoformat(), "status": by_day[d].training_status if d in by_day else None}
+                for d in days
+            ],
+        }
+
+    acts = activities(db, athlete)
+    if not acts:
+        return {"source": "estimated", "status": "NO_STATUS", "timeline": []}
+    start = acts[0].day
+    series = {p.day: p for p in pmc.compute_pmc(tss_by_day(acts), start, today)}
+
+    def classify(d: date) -> str | None:
+        p, back = series.get(d), series.get(d - timedelta(days=28))
+        if p is None:
+            return None
+        nights = [(n, hrv[n]) for n in hrv if d - timedelta(days=7) < n <= d]
+        lows = sum(1 for n, v in nights if (b := _hrv_band(hrv, n)) and v < b[0] - b[1])
+        acwr = p.atl / p.ctl if p.ctl > 0 else None
+        return status.classify(p.ctl - (back.ctl if back else 0), p.ctl, p.tsb, acwr, lows)
+
+    now = series[today]
+    back = series.get(today - timedelta(days=28))
+    change = now.ctl - (back.ctl if back else 0)
+    ratio = now.atl / now.ctl if now.ctl > 0 else None
+    return {
+        "source": "estimated",
+        "as_of": today.isoformat(),
+        "status": classify(today),
+        "fitness_trend": "INCREASING"
+        if change >= 0.05 * now.ctl
+        else "DECREASING"
+        if change <= -0.05 * now.ctl
+        else "STABLE",
+        "fitness": {"ctl": now.ctl, "change_28d": change},
+        "vo2max": None,
+        "load": {
+            "acute": now.atl,
+            "chronic": now.ctl,
+            "ratio": ratio,
+            "status": None
+            if ratio is None
+            else "HIGH"
+            if ratio > 1.3
+            else "LOW"
+            if ratio < 0.8
+            else "OPTIMAL",
+            "units": "tss",
+        },
+        "hrv": hrv_view,
+        "readiness": None,
+        "timeline": [{"day": d.isoformat(), "status": classify(d)} for d in days],
+    }
 
 
 # ------------------------------------------------------------------ wellness

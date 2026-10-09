@@ -124,3 +124,11 @@ class WellnessDay(Base):
     body_battery_high: Mapped[float | None] = mapped_column(Float)
     body_battery_low: Mapped[float | None] = mapped_column(Float)
     stress_avg: Mapped[float | None] = mapped_column(Float)
+    # Garmin's own training metrics, when the export includes them
+    training_status: Mapped[str | None] = mapped_column(String(24))
+    fitness_trend: Mapped[str | None] = mapped_column(String(16))
+    vo2max: Mapped[float | None] = mapped_column(Float)
+    acute_load: Mapped[float | None] = mapped_column(Float)
+    chronic_load: Mapped[float | None] = mapped_column(Float)
+    load_status: Mapped[str | None] = mapped_column(String(16))
+    readiness: Mapped[float | None] = mapped_column(Float)

@@ -510,23 +510,6 @@ tr.clickable:hover td {
   font-family: var(--f-body);
 }
 
-/* calendar heatmap */
-.cal {
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(7, 12px);
-  gap: 3px;
-  overflow-x: auto;
-  padding-bottom: 4px;
-}
-.cal i {
-  width: 12px;
-  height: 12px;
-  border-radius: 2px;
-  background: var(--grid);
-  display: block;
-}
-
 /* forms */
 .form {
   display: grid;

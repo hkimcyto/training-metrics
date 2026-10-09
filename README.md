@@ -15,9 +15,10 @@ The live demo runs on my own training: about 600 Strava sessions from January 20
 
 | Area | Details |
 |---|---|
-| **Ingestion** | Strava OAuth, full-history backfill, incremental sync and real-time webhooks (create, update, delete, deauthorize). Token refresh and rate-limit backoff are handled. Garmin wellness comes from the official account export (ZIP), with an optional live sync. |
+| **Ingestion** | Strava OAuth, full-history backfill, incremental sync and real-time webhooks (create, update, delete, deauthorize). Token refresh and rate-limit backoff are handled. Garmin wellness and training metrics come from the official account export (ZIP), with an optional live sync for wellness. |
 | **Training stress** | Each workout is scored by the most accurate method its data allows: power TSS from Normalized Power, rTSS from grade-adjusted pace (Minetti cost-of-running model), sTSS from swim pace (cubed intensity), or hrTSS from Banister TRIMP. Workouts with only a Strava summary use Relative Effort, rescaled to TSS by a factor calibrated on the athlete's own workouts that have both. Duration is the last resort. |
 | **Fitness, fatigue, form** | Exponentially weighted 42/7-day load, ramp rate and acute:chronic workload ratio. |
+| **Training status** | Garmin's own status (Productive, Maintaining, Peaking, Strained, Recovery…) with the VO2 max, acute/chronic load and readiness behind it, read from the Garmin export. Athletes without it get an estimate in the same vocabulary from fitness trend, load ratio and HRV. |
 | **Personal response model** | A Banister impulse-response model fitted to the athlete's aerobic-efficiency markers by regularised non-linear least squares. With a short history it falls back to population constants. |
 | **Taper optimiser** | A grid search over taper length and depth, with each candidate scored by the fitted model's predicted race-day performance. |
 | **Race prediction** | A Monte Carlo simulation of 6,000 races at any of nine distances, picked from a dropdown. Running races stretch threshold pace to the distance with Riegel's power law, then apply a durability factor (long runs and fitness, relative to the race distance) and heat. Triathlons add the swim from Critical Swim Speed and the bike from a physics energy balance (aero drag, rolling resistance, climbing, drivetrain loss), with pacing and transition times set per distance. Output is the P10/P50/P90 range for each leg. |
@@ -92,7 +93,7 @@ To use your own Strava data, create an API app at <https://www.strava.com/settin
 ## Tests and CI
 
 ```bash
-make test    # pytest (70 tests, ~85% coverage) + vitest
+make test    # pytest (80 tests, ~85% coverage) + vitest
 make lint    # ruff, tsc, oxlint, prettier
 ```
 
