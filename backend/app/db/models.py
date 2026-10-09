@@ -46,6 +46,7 @@ class Athlete(Base):
 
     race_name: Mapped[str | None] = mapped_column(String(120))
     race_date: Mapped[date | None] = mapped_column(Date)
+    race_type: Mapped[str] = mapped_column(String(16), default="ironman", server_default="ironman")
     race_climb_m: Mapped[float] = mapped_column(Float, default=1500)
     race_wetsuit: Mapped[bool] = mapped_column(Boolean, default=True)
     race_temp_c: Mapped[float] = mapped_column(Float, default=22)

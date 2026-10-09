@@ -19,6 +19,7 @@ export interface Me {
     lthr: number | null
     race_name: string | null
     race_date: string | null
+    race_type: string
     race_climb_m: number
     race_wetsuit: boolean
     race_temp_c: number
@@ -32,6 +33,13 @@ export interface Me {
     rest_hr: number
     sources: Record<string, string>
   }
+  race_types: RaceType[]
+}
+
+export interface RaceType {
+  key: string
+  label: string
+  kind: 'run' | 'triathlon'
 }
 
 export interface Week {
@@ -116,9 +124,14 @@ export interface Leg {
   p90: number
 }
 
+export type LegKey = 'swim' | 't1' | 'bike' | 't2' | 'run'
+
 export interface RacePrediction {
+  race_type: string
+  is_target: boolean
   course: {
     name: string
+    kind: 'run' | 'triathlon'
     swim_m: number
     bike_m: number
     run_m: number
@@ -136,12 +149,17 @@ export interface RacePrediction {
     longest_ride_8wk_s: number
     sources: Record<string, string>
   }
-  legs: Record<'total' | 'swim' | 't1' | 'bike' | 't2' | 'run', Leg>
-  bike_avg_watts: number
-  bike_avg_speed: number
+  legs: { total: Leg } & Partial<Record<LegKey, Leg>>
+  bike_avg_watts: number | null
+  bike_avg_speed: number | null
   run_pace_s_per_km: number
-  histogram: { hours: number; count: number }[]
-  drivers: { bike_intensity_factor: number; run_durability: number; form_multiplier: number }
+  histogram: { s: number; count: number }[]
+  drivers: {
+    form_multiplier: number
+    run_durability: number
+    run_vs_threshold: number
+    bike_intensity_factor?: number
+  }
 }
 
 export interface PowerCurve {

@@ -80,7 +80,7 @@ export default function App() {
         <div className="shell">
           <div className="top-row">
             <div className="brand">
-              <Logo /> Tri Dash
+              <Logo /> Training Dash
             </div>
             {me.data && <span className="who">{me.data.name}</span>}
             <span className="spacer" />

@@ -1,6 +1,6 @@
-# Tri Dash
+# Training Dash
 
-**Ironman training analytics.** Tri Dash pulls workouts from Strava and recovery data from Garmin. It scores every session on one training-stress scale and fits a fitness-fatigue model to the athlete's own data. From that model it searches for the best taper, then simulates race day thousands of times to predict a finish time with a realistic range.
+**Endurance training analytics, from the mile to the Ironman.** Training Dash pulls workouts from Strava and recovery data from Garmin. It scores every session on one training-stress scale and fits a fitness-fatigue model to the athlete's own data. From that model it searches for the best taper, then simulates race day thousands of times to predict a finish time with a realistic range, for running races (1 mile, 5K, 10K, half marathon, marathon) and triathlons (sprint, Olympic, 70.3, full Ironman).
 
 The live demo runs on my own training: about 600 Strava sessions from January 2026 through the final weeks before **IRONMAN California (October 18, 2026)**.
 
@@ -20,7 +20,7 @@ The live demo runs on my own training: about 600 Strava sessions from January 20
 | **Fitness, fatigue, form** | Exponentially weighted 42/7-day load, ramp rate and acute:chronic workload ratio. |
 | **Personal response model** | A Banister impulse-response model fitted to the athlete's aerobic-efficiency markers by regularised non-linear least squares. With a short history it falls back to population constants. |
 | **Taper optimiser** | A grid search over taper length and depth, with each candidate scored by the fitted model's predicted race-day performance. |
-| **Race prediction** | A Monte Carlo simulation of 6,000 races. The swim comes from Critical Swim Speed. The bike comes from a physics energy balance (aero drag, rolling resistance, climbing, drivetrain loss). The run comes from threshold pace scaled by a durability factor and heat. Output is the P10/P50/P90 range for each leg. |
+| **Race prediction** | A Monte Carlo simulation of 6,000 races at any of nine distances, picked from a dropdown. Running races stretch threshold pace to the distance with Riegel's power law, then apply a durability factor (long runs and fitness, relative to the race distance) and heat. Triathlons add the swim from Critical Swim Speed and the bike from a physics energy balance (aero drag, rolling resistance, climbing, drivetrain loss), with pacing and transition times set per distance. Output is the P10/P50/P90 range for each leg. |
 | **Performance** | Mean-maximal power curve with a Critical Power / W′ fit, Efficiency Factor trends and aerobic decoupling. |
 | **Routes** | A layered map of every outdoor ride and run, decoded from Strava polylines. |
 | **Recovery** | HRV against a rolling 60-day baseline, resting HR, sleep, Body Battery, and the correlation between yesterday's load and this morning's HRV. |
@@ -67,6 +67,8 @@ flowchart LR
 `P·η·T = (½ρ·CdA·v³ + Crr·m·g·v)·T + m·g·H·(1 − r)`, where `v = D/T`.
 CdA, Crr and race-day intensity are drawn from distributions in each simulation.
 
+**Run races.** Threshold is roughly one-hour race pace, so it anchors Riegel's `T₂ = T₁·(D₂/D₁)^1.06` at `T₁ = 3600 s`. Shorter races come out faster than threshold and longer ones slower; the half and full marathon are further discounted when recent long runs fall short of the distance.
+
 **Critical Power.** Work against time is linear (`W = CP·t + W′`), so CP and W′ come from ordinary least squares on the 2–20 minute bests.
 
 ## Running it
@@ -90,7 +92,7 @@ To use your own Strava data, create an API app at <https://www.strava.com/settin
 ## Tests and CI
 
 ```bash
-make test    # pytest (54 tests, ~85% coverage) + vitest
+make test    # pytest (70 tests, ~85% coverage) + vitest
 make lint    # ruff, tsc, oxlint, prettier
 ```
 

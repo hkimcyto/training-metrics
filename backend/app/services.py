@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.analytics import banister, pmc
 from app.analytics.power_curve import fit_critical_power, merge_curves
-from app.analytics.race import AthleteProfile, Course, simulate
+from app.analytics.race import RACE_TYPES, AthleteProfile, Course, simulate
 from app.db.models import Activity, Athlete, WellnessDay
 from app.ingest.scoring import resolve_thresholds
 
@@ -229,7 +229,11 @@ def pmc_view(db: Session, athlete: Athlete, days: int = 150) -> dict[str, Any]:
 # --------------------------------------------------------------------- race
 
 
-def race_prediction(db: Session, athlete: Athlete) -> dict[str, Any]:
+def race_types() -> list[dict[str, str]]:
+    return [{"key": r.key, "label": r.label, "kind": r.kind} for r in RACE_TYPES.values()]
+
+
+def race_prediction(db: Session, athlete: Athlete, race_type: str | None = None) -> dict[str, Any]:
     today = _today(db, athlete)
     thresholds, sources = resolve_thresholds(db, athlete)
     view = pmc_view(db, athlete, days=1)
@@ -253,19 +257,41 @@ def race_prediction(db: Session, athlete: Athlete) -> dict[str, Any]:
         longest_run_8wk_m=longest_run,
         longest_ride_8wk_s=longest_ride,
     )
-    course = Course(
-        name=athlete.race_name or "IRONMAN",
-        bike_climb_m=athlete.race_climb_m,
-        wetsuit=athlete.race_wetsuit,
-        run_temp_c=athlete.race_temp_c,
-    )
+    target = athlete.race_type if athlete.race_type in RACE_TYPES else "ironman"
+    race_type = race_type or target
+    race = RACE_TYPES[race_type]
+    if race_type == target:
+        # the athlete's own race, with the course details from settings
+        course = Course(
+            name=athlete.race_name or race.label,
+            race_type=race_type,
+            bike_climb_m=athlete.race_climb_m,
+            wetsuit=athlete.race_wetsuit,
+            run_temp_c=athlete.race_temp_c,
+        )
+    else:
+        # any other distance runs on a typical course: rolling, mild, wetsuit legal
+        course = Course(
+            name=race.label, race_type=race_type, bike_climb_m=race.bike_m * 0.006, run_temp_c=18
+        )
     p = simulate(profile, course, n=6000)
 
     def leg(s: Any) -> dict[str, float]:
         return {"p10": s.p10, "p50": s.p50, "p90": s.p90}
 
     return {
-        "course": course.__dict__,
+        "race_type": race_type,
+        "is_target": race_type == target,
+        "course": {
+            "name": course.name,
+            "kind": race.kind,
+            "swim_m": race.swim_m,
+            "bike_m": race.bike_m,
+            "run_m": race.run_m,
+            "bike_climb_m": course.bike_climb_m,
+            "wetsuit": course.wetsuit,
+            "run_temp_c": course.run_temp_c,
+        },
         "inputs": {
             "ftp_watts": thresholds.ftp_watts,
             "run_threshold_speed": thresholds.run_threshold_speed,
@@ -276,11 +302,11 @@ def race_prediction(db: Session, athlete: Athlete) -> dict[str, Any]:
             "longest_ride_8wk_s": longest_ride,
             "sources": sources,
         },
-        "legs": {k: leg(getattr(p, k)) for k in ("total", "swim", "t1", "bike", "t2", "run")},
+        "legs": {"total": leg(p.total), **{k: leg(v) for k, v in p.legs.items()}},
         "bike_avg_watts": p.bike_avg_watts,
         "bike_avg_speed": p.bike_avg_speed,
         "run_pace_s_per_km": p.run_pace_s_per_km,
-        "histogram": [{"hours": h, "count": c} for h, c in p.histogram],
+        "histogram": [{"s": t, "count": c} for t, c in p.histogram],
         "drivers": p.drivers,
     }
 

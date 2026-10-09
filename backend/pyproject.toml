@@ -1,7 +1,7 @@
 [project]
 name = "tri-dash"
 version = "0.1.0"
-description = "Ironman training analytics: Strava + Garmin ingestion, training-load modeling and race forecasting."
+description = "Endurance training analytics: Strava + Garmin ingestion, training-load modeling and race forecasting from the mile to Ironman."
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115",

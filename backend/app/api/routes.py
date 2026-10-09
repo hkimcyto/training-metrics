@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import secrets
 from datetime import date
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import (
     APIRouter,
@@ -22,6 +22,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import services
+from app.analytics.race import RACE_TYPES
 from app.config import Settings, get_settings
 from app.db.models import Activity, Athlete
 from app.db.session import SessionLocal, get_db
@@ -31,6 +32,7 @@ from app.ingest.strava import StravaClient, StravaError, authorize_url
 from app.ingest.sync import handle_webhook_event, is_sync_active, rescore_all, sync_athlete
 
 router = APIRouter(prefix="/api")
+RaceKey = Literal[tuple(RACE_TYPES)]  # type: ignore[valid-type]
 COOKIE = "tri_session"
 
 DbDep = Annotated[Session, Depends(get_db)]
@@ -108,11 +110,13 @@ def me(athlete: AthleteDep, db: DbDep, settings: SettingsDep) -> dict[str, Any]:
             "lthr": athlete.lthr,
             "race_name": athlete.race_name,
             "race_date": athlete.race_date.isoformat() if athlete.race_date else None,
+            "race_type": athlete.race_type,
             "race_climb_m": athlete.race_climb_m,
             "race_wetsuit": athlete.race_wetsuit,
             "race_temp_c": athlete.race_temp_c,
         },
         "thresholds": {**t.__dict__, "sources": sources},
+        "race_types": services.race_types(),
     }
 
 
@@ -126,6 +130,7 @@ class SettingsIn(BaseModel):
     lthr: float | None = Field(None, gt=100, lt=220)
     race_name: str | None = Field(None, max_length=120)
     race_date: date | None = None
+    race_type: RaceKey | None = None
     race_climb_m: float | None = Field(None, ge=0, lt=5000)
     race_wetsuit: bool | None = None
     race_temp_c: float | None = Field(None, gt=-5, lt=45)
@@ -284,8 +289,8 @@ def pmc(athlete: AthleteDep, db: DbDep, days: int = Query(150, ge=14, le=730)) -
 
 
 @router.get("/race/prediction")
-def race(athlete: AthleteDep, db: DbDep) -> dict[str, Any]:
-    return services.race_prediction(db, athlete)
+def race(athlete: AthleteDep, db: DbDep, race: RaceKey | None = None) -> dict[str, Any]:
+    return services.race_prediction(db, athlete, race)
 
 
 @router.get("/power-curve")

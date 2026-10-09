@@ -48,7 +48,12 @@ export const useMe = () =>
 export const useDashboard = (weeks = 12) =>
   useQuery({ queryKey: ['dashboard', weeks], queryFn: get<Dashboard>(`/dashboard?weeks=${weeks}`) })
 export const usePmc = (days = 150) => useQuery({ queryKey: ['pmc', days], queryFn: get<Pmc>(`/pmc?days=${days}`) })
-export const useRace = () => useQuery({ queryKey: ['race'], queryFn: get<RacePrediction>('/race/prediction') })
+export const useRace = (race?: string) =>
+  useQuery({
+    queryKey: ['race', race],
+    queryFn: get<RacePrediction>(`/race/prediction${race ? `?race=${race}` : ''}`),
+    placeholderData: (prev) => prev,
+  })
 export const usePowerCurve = (days = 90) =>
   useQuery({ queryKey: ['power', days], queryFn: get<PowerCurve>(`/power-curve?days=${days}`) })
 export const useEfficiency = () => useQuery({ queryKey: ['eff'], queryFn: get<EfficiencyTrend>('/efficiency') })

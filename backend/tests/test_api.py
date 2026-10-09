@@ -39,6 +39,18 @@ def test_prediction_legs_add_up(client):
     assert parts == pytest.approx(legs["total"]["p50"], rel=0.03)
 
 
+def test_prediction_for_any_race_type(client):
+    body = client.get("/api/race/prediction", params={"race": "5k"}).json()
+    assert body["race_type"] == "5k" and not body["is_target"]
+    assert set(body["legs"]) == {"total", "run"}
+    assert client.get("/api/race/prediction", params={"race": "ultra"}).status_code == 422
+
+
+def test_me_lists_race_types(client):
+    keys = [r["key"] for r in client.get("/api/me").json()["race_types"]]
+    assert "marathon" in keys and "olympic_tri" in keys
+
+
 def test_activity_404_for_other_ids(client):
     assert client.get("/api/activities/999999").status_code == 404
 

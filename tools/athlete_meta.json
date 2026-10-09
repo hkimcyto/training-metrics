@@ -4,6 +4,7 @@
   "ftp_watts": 214,
   "race_name": "IRONMAN California",
   "race_date": "2026-10-18",
+  "race_type": "ironman",
   "race_climb_m": 500,
   "race_wetsuit": true,
   "race_temp_c": 25

@@ -12,6 +12,12 @@ export function hms(seconds: number, withSeconds = false): string {
   return withSeconds ? `${h}:${mm}:${String(sec).padStart(2, '0')}` : `${h}:${mm}`
 }
 
+/** A finish time at the precision the race needs: 5:12 for a mile, 1:19:39 for a half, 10:13 for an Ironman. */
+export function raceTime(seconds: number): string {
+  if (seconds < 3600) return minSec(seconds)
+  return hms(seconds, seconds < 5 * 3600)
+}
+
 export function minSec(seconds: number): string {
   let m = Math.floor(seconds / 60)
   let s = Math.round(seconds % 60)
